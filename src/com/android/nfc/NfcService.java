@@ -4244,8 +4244,8 @@ public class NfcService implements DeviceHostListener {
             try {
                 String reader = new String(readerByteArray, "UTF-8");
                 String[] installedPackages = new String[mNfcEventInstalledPackages.size()];
-                boolean[] nfcAccess = mSEService.isNFCEventAllowed(reader, aid,
-                        mNfcEventInstalledPackages.toArray(installedPackages));
+                boolean[] nfcAccess = mSEService.isNfcEventAllowed(reader, aid,
+                        mNfcEventInstalledPackages.toArray(installedPackages), mUserId);
                 if (nfcAccess == null) {
                     return;
                 }
@@ -4272,7 +4272,7 @@ public class NfcService implements DeviceHostListener {
                     }
                 }
             } catch (RemoteException e) {
-                Log.e(TAG, "Error in isNFCEventAllowed() " + e);
+                Log.e(TAG, "Error in isNfcEventAllowed() " + e);
             } catch (UnsupportedEncodingException e) {
                 Log.e(TAG, "Incorrect format for Secure Element name" + e);
             } catch (IllegalArgumentException e) {
@@ -4300,8 +4300,8 @@ public class NfcService implements DeviceHostListener {
             String[] installedPackages = new String[mNfcEventInstalledPackages.size()];
             for (String reader : readers) {
                 try {
-                    boolean[] accessList = mSEService.isNFCEventAllowed(reader, null,
-                            mNfcEventInstalledPackages.toArray(installedPackages));
+                    boolean[] accessList = mSEService.isNfcEventAllowed(reader, null,
+                            mNfcEventInstalledPackages.toArray(installedPackages), mUserId);
                     if (accessList == null) {
                         continue;
                     }
@@ -4314,7 +4314,7 @@ public class NfcService implements DeviceHostListener {
                         }
                     }
                 } catch (RemoteException e) {
-                    Log.e(TAG, "Error in isNFCEventAllowed() " + e);
+                    Log.e(TAG, "Error in isNfcEventAllowed() " + e);
                 } catch (IllegalArgumentException e) {
                     Log.e(TAG, "Error " + e);
                 }
@@ -4387,8 +4387,8 @@ public class NfcService implements DeviceHostListener {
                     new String[mNfcPreferredPaymentChangedInstalledPackages.size()];
             for (String reader : readers) {
                 try {
-                    boolean[] accessList = mSEService.isNFCEventAllowed(reader, null,
-                            mNfcPreferredPaymentChangedInstalledPackages.toArray(installedPackages)
+                    boolean[] accessList = mSEService.isNfcEventAllowed(reader, null,
+                            mNfcPreferredPaymentChangedInstalledPackages.toArray(installedPackages), mUserId
                             );
                     if (accessList == null) {
                         continue;
@@ -4402,7 +4402,7 @@ public class NfcService implements DeviceHostListener {
                         }
                     }
                 } catch (RemoteException e) {
-                    Log.e(TAG, "Error in isNFCEventAllowed() " + e);
+                    Log.e(TAG, "Error in isNfcEventAllowed() " + e);
                 }
             }
             if (nfcAccessFinal == null) {
