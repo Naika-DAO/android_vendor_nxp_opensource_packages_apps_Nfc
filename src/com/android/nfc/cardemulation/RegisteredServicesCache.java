@@ -37,10 +37,6 @@
 ******************************************************************************/
 package com.android.nfc.cardemulation;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlSerializer;
-
 import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -48,16 +44,18 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.net.Uri;
 import android.nfc.cardemulation.AidGroup;
 import android.nfc.cardemulation.ApduServiceInfo;
 import android.nfc.cardemulation.CardEmulation;
 import android.nfc.cardemulation.HostApduService;
 import android.nfc.cardemulation.OffHostApduService;
+import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.util.AtomicFile;
 import android.util.Log;
 import android.util.SparseArray;
@@ -65,8 +63,14 @@ import android.util.Xml;
 import android.util.proto.ProtoOutputStream;
 import com.nxp.nfc.NfcConstants;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.FastXmlSerializer;
+
 import com.google.android.collect.Maps;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+import org.xmlpull.v1.XmlSerializer;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -82,7 +86,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import com.android.nfc.NfcService;
-import android.os.SystemProperties;
 
 /**
  * This class is inspired by android.content.pm.RegisteredServicesCache
@@ -94,8 +97,7 @@ import android.os.SystemProperties;
 public class RegisteredServicesCache {
     static final String XML_INDENT_OUTPUT_FEATURE = "http://xmlpull.org/v1/doc/features.html#indent-output";
     static final String TAG = "RegisteredServicesCache";
-    static final boolean DEBUG =
-        ((SystemProperties.get("persist.nfc.ce_debug").equals("1")) ? true : false);
+    static final boolean DEBUG = SystemProperties.getBoolean("persist.nfc.debug_enabled", false);
     static final String SERVICE_STATE_FILE_VERSION="1.0";
 
     final Context mContext;
@@ -103,6 +105,10 @@ public class RegisteredServicesCache {
 
     final Object mLock = new Object();
     // All variables below synchronized on mLock
+
+    // mUserHandles holds the UserHandles of all the profiles that belong to current user
+    @GuardedBy("mLock")
+    List<UserHandle> mUserHandles;
 
     // mUserServices holds the card emulation services that are running for each user
     final SparseArray<UserServices> mUserServices = new SparseArray<UserServices>();
@@ -144,9 +150,19 @@ public class RegisteredServicesCache {
         return services;
     }
 
+    private int getProfileParentId(int userId) {
+        UserManager um = mContext.createContextAsUser(
+                UserHandle.of(userId), /*flags=*/0)
+                .getSystemService(UserManager.class);
+        UserHandle uh = um.getProfileParent(UserHandle.of(userId));
+        return uh == null ? userId : uh.getIdentifier();
+    }
+
     public RegisteredServicesCache(Context context, Callback callback) {
         mContext = context;
         mCallback = callback;
+
+        refreshUserProfilesLocked();
 
         final BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
@@ -156,7 +172,7 @@ public class RegisteredServicesCache {
                 if (DEBUG) Log.d(TAG, "Intent action: " + action);
                 if (uid != -1) {
                     int currentUser = ActivityManager.getCurrentUser();
-                    if (currentUser == UserHandle.getUserId(uid)) {
+                    if (currentUser == getProfileParentId(UserHandle.getUserId(uid))) {
                         if(Intent.ACTION_PACKAGE_REMOVED.equals(action)) {
                             Uri uri = intent.getData();
                             String pkg = uri != null ? uri.getSchemeSpecificPart() : null;
@@ -202,8 +218,39 @@ public class RegisteredServicesCache {
     void initialize() {
         synchronized (mLock) {
             readDynamicSettingsLocked();
+            for (UserHandle uh : mUserHandles) {
+                invalidateCache(uh.getIdentifier());
+            }
         }
-        invalidateCache(ActivityManager.getCurrentUser());
+    }
+
+    public void onUserSwitched() {
+        synchronized (mLock) {
+            refreshUserProfilesLocked();
+            invalidateCache(ActivityManager.getCurrentUser());
+        }
+    }
+
+    public void onManagedProfileChanged() {
+        synchronized (mLock) {
+            refreshUserProfilesLocked();
+            invalidateCache(ActivityManager.getCurrentUser());
+        }
+    }
+
+    private void refreshUserProfilesLocked() {
+        UserManager um = mContext.createContextAsUser(
+                UserHandle.of(ActivityManager.getCurrentUser()), /*flags=*/0)
+                .getSystemService(UserManager.class);
+        mUserHandles = um.getEnabledProfiles();
+        List<UserHandle> removeUserHandles = new ArrayList<UserHandle>();
+
+        for (UserHandle uh : mUserHandles) {
+            if (um.isQuietModeEnabled(uh)) {
+                removeUserHandles.add(uh);
+            }
+        }
+        mUserHandles.removeAll(removeUserHandles);
     }
 
     void dump(ArrayList<ApduServiceInfo> services) {
@@ -686,12 +733,20 @@ public class RegisteredServicesCache {
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("Registered HCE services for current user: ");
-        UserServices userServices = findOrCreateUserLocked(ActivityManager.getCurrentUser());
-        for (ApduServiceInfo service : userServices.services.values()) {
-            service.dump(fd, pw, args);
-            pw.println("");
+
+        synchronized (mLock) {
+            for (UserHandle uh : mUserHandles) {
+                UserManager um = mContext.createContextAsUser(
+                        uh, /*flags=*/0).getSystemService(UserManager.class);
+                pw.println("User " + um.getUserName() + " : ");
+                UserServices userServices = findOrCreateUserLocked(uh.getIdentifier());
+                for (ApduServiceInfo service : userServices.services.values()) {
+                    service.dump(fd, pw, args);
+                    pw.println("");
+                }
+                pw.println("");
+            }
         }
-        pw.println("");
     }
 
     /**

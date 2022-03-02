@@ -715,11 +715,16 @@ static jint nativeNfcTag_doConnect(JNIEnv*, jobject, jint targetHandle) {
 
   if (sCurrentConnectedTargetType == TARGET_TYPE_ISO14443_3A ||
       sCurrentConnectedTargetType == TARGET_TYPE_ISO14443_3B) {
-    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
-        "%s: switching to tech: %d need to switch rf intf to frame", __func__,
-        sCurrentConnectedTargetType);
-    retCode = switchRfInterface(NFA_INTERFACE_FRAME) ? NFA_STATUS_OK
-                                                     : NFA_STATUS_FAILED;
+#if (NXP_EXTNS != TRUE)
+    if (sCurrentConnectedTargetProtocol != NFC_PROTOCOL_MIFARE)
+#endif
+    {
+      DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
+          "%s: switching to tech: %d need to switch rf intf to frame", __func__,
+          sCurrentConnectedTargetType);
+      retCode = switchRfInterface(NFA_INTERFACE_FRAME) ? NFA_STATUS_OK
+                                                       : NFA_STATUS_FAILED;
+    }
   } else if(sCurrentConnectedTargetType == TARGET_TYPE_MIFARE_CLASSIC){
     retCode = switchRfInterface(NFA_INTERFACE_MIFARE) ? NFA_STATUS_OK
                                                      : NFA_STATUS_FAILED;
@@ -959,11 +964,6 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
       rVal = STATUS_CODE_TARGET_LOST;
       break;
     }
-#if (NXP_EXTNS == TRUE)
-    if (natTag.isCashBeeActivated() == true) {
-      natTag.mCashbeeDetected = false;
-    }
-#endif
 
     if (sConnectOk) {
       rVal = 0;  // success
@@ -978,6 +978,11 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
   sConnectWaitingForComplete = JNI_FALSE;
   gIsTagDeactivating = false;
   gIsSelectingRfInterface = false;
+#if (NXP_EXTNS == TRUE)
+  if (natTag.isCashBeeActivated() == true) {
+    natTag.mCashbeeDetected = false;
+  }
+#endif
   sRfInterfaceMutex.unlock();
   DLOG_IF(INFO, nfc_debug_enabled)
       << StringPrintf("%s: exit; status=%d", __func__, rVal);
@@ -1172,7 +1177,7 @@ jboolean nativeNfcTag_doDisconnect(JNIEnv*, jobject) {
   NfcTag::getInstance().resetAllTransceiveTimeouts();
 
   if (NfcTag::getInstance().getActivationState() != NfcTag::Active) {
-    LOG(ERROR) << StringPrintf("%s: tag already deactivated", __func__);
+    LOG(WARNING) << StringPrintf("%s: tag already deactivated", __func__);
     goto TheEnd;
   }
 #if (NXP_EXTNS == TRUE)
@@ -1808,18 +1813,7 @@ static jboolean nativeNfcTag_doPresenceCheck(JNIEnv*, jobject) {
     status =
         NFA_RwPresenceCheck(NfcTag::getInstance().getPresenceCheckAlgorithm());
     if (status == NFA_STATUS_OK) {
-#if (NXP_EXTNS == TRUE)
-      int pCtimeout = NfcConfig::getUnsigned(NAME_NXP_PRESENCE_CHECK_TIMEOUT,
-                                             DEFAULT_PRESENCE_CHECK_TIMEOUT);
-      if (sPresenceCheckEvent.wait(pCtimeout) == false)
-      {
-        LOG(ERROR) << StringPrintf("%s: timeout waiting presence check",
-                                   __func__);
-        sIsTagPresent = false;
-      }
-#else
       sPresenceCheckEvent.wait();
-#endif
       isPresent = sIsTagPresent ? JNI_TRUE : JNI_FALSE;
     }
   }

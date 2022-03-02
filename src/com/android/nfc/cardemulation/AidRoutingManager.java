@@ -34,6 +34,7 @@
 ******************************************************************************/
 package com.android.nfc.cardemulation;
 
+import android.os.SystemProperties;
 import android.util.Log;
 import android.util.SparseArray;
 import android.content.Context;
@@ -58,13 +59,11 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Hashtable;
-import android.os.SystemProperties;
 public class AidRoutingManager {
 
     static final String TAG = "AidRoutingManager";
 
-    static final boolean DBG =
-        ((SystemProperties.get("persist.nfc.ce_debug").equals("1")) ? true : false);
+    static final boolean DBG = SystemProperties.getBoolean("persist.nfc.debug_enabled", false);
 
     static final int ROUTE_HOST = 0x00;
 
@@ -387,7 +386,11 @@ public class AidRoutingManager {
                       }
                     }
                 }
-              if (mDefaultRoute != mDefaultIsoDepRoute) {
+              // register default route in below cases:
+              // 1. mDefaultRoute is different with mDefaultIsoDepRoute
+              // 2. mDefaultRoute and mDefaultIsoDepRoute all equal to ROUTE_HOST
+              //    , which is used for screen off HCE scenarios
+              if (mDefaultRoute != mDefaultIsoDepRoute || mDefaultIsoDepRoute == ROUTE_HOST) {
                   if (NfcService.getInstance().getNciVersion()
                           >= NfcService.getInstance().NCI_VERSION_2_0) {
                       String emptyAid = "";

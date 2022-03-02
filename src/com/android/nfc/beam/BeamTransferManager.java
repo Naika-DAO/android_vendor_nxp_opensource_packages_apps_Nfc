@@ -128,7 +128,7 @@ public class BeamTransferManager implements Handler.Callback,
 
     static final String BEAM_NOTIFICATION_CHANNEL = "beam_notification_channel";
 
-    static final String ACTION_WHITELIST_DEVICE =
+    static final String ACTION_ALLOWLIST_DEVICE =
             "android.btopp.intent.action.WHITELIST_DEVICE";
 
     static final String ACTION_STOP_BLUETOOTH_TRANSFER =
@@ -203,9 +203,9 @@ public class BeamTransferManager implements Handler.Callback,
         mNotificationManager.createNotificationChannel(notificationChannel);
     }
 
-    void whitelistOppDevice(BluetoothDevice device) {
-        if (DBG) Log.d(TAG, "Whitelisting " + device + " for BT OPP");
-        Intent intent = new Intent(ACTION_WHITELIST_DEVICE);
+    void allowlistOppDevice(BluetoothDevice device) {
+        if (DBG) Log.d(TAG, "Allowlist " + device + " for BT OPP");
+        Intent intent = new Intent(ACTION_ALLOWLIST_DEVICE);
         intent.setPackage(mContext.getString(R.string.bluetooth_package));
         intent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
         intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
@@ -235,8 +235,8 @@ public class BeamTransferManager implements Handler.Callback,
         this.mProgress = progress;
 
         // We're still receiving data from this device - keep it in
-        // the whitelist for a while longer
-        if (mIncoming && mRemoteDevice != null) whitelistOppDevice(mRemoteDevice);
+        // the allowlist for a while longer
+        if (mIncoming && mRemoteDevice != null) allowlistOppDevice(mRemoteDevice);
 
         updateStateAndNotification(STATE_IN_PROGRESS);
     }
@@ -517,6 +517,7 @@ public class BeamTransferManager implements Handler.Callback,
 
     PendingIntent buildCancelIntent() {
         Intent intent = new Intent(BeamStatusReceiver.ACTION_CANCEL_HANDOVER_TRANSFER);
+        intent.setPackage("com.android.nfc");
         intent.putExtra(BeamStatusReceiver.EXTRA_ADDRESS, mRemoteDevice.getAddress());
         intent.putExtra(BeamStatusReceiver.EXTRA_INCOMING, mIncoming ?
                 BeamStatusReceiver.DIRECTION_INCOMING : BeamStatusReceiver.DIRECTION_OUTGOING);
@@ -576,4 +577,3 @@ public class BeamTransferManager implements Handler.Callback,
         return newFile;
     }
 }
-

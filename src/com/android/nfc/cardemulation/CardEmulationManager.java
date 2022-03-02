@@ -24,10 +24,8 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.List;
 
-import android.app.ActivityManager;
 import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
 import android.nfc.INfcCardEmulation;
 import android.nfc.INfcFCardEmulation;
 import android.nfc.NfcAdapter;
@@ -35,12 +33,12 @@ import android.nfc.cardemulation.AidGroup;
 import android.nfc.cardemulation.ApduServiceInfo;
 import android.nfc.cardemulation.NfcFServiceInfo;
 import android.nfc.cardemulation.CardEmulation;
-import android.nfc.cardemulation.NfcFCardEmulation;
 import android.os.Binder;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.proto.ProtoOutputStream;
@@ -49,9 +47,6 @@ import java.util.HashMap;
 
 import com.android.nfc.NfcPermissions;
 import com.android.nfc.NfcService;
-import com.android.nfc.cardemulation.RegisteredServicesCache;
-import com.android.nfc.cardemulation.RegisteredNfcFServicesCache;
-import android.os.SystemProperties;
 
 /**
  * CardEmulationManager is the central entity
@@ -72,7 +67,7 @@ public class CardEmulationManager implements RegisteredServicesCache.Callback,
         RegisteredNfcFServicesCache.Callback, PreferredServices.Callback,
         EnabledNfcFServices.Callback {
     static final String TAG = "CardEmulationManager";
-    static final boolean DBG = ((SystemProperties.get("persist.nfc.ce_debug").equals("1")) ? true : false);
+    static final boolean DBG = SystemProperties.getBoolean("persist.nfc.debug_enabled", false);
     static final int NFC_HCE_APDU = 0x01;
     static final int NFC_HCE_NFCF = 0x04;
 
@@ -161,14 +156,20 @@ public class CardEmulationManager implements RegisteredServicesCache.Callback,
 
     public void onUserSwitched(int userId) {
         // for HCE
-        mServiceCache.invalidateCache(userId);
+        mServiceCache.onUserSwitched();
         mPreferredServices.onUserSwitched(userId);
         // for HCE-F
         mHostNfcFEmulationManager.onUserSwitched();
         mT3tIdentifiersCache.onUserSwitched();
         mEnabledNfcFServices.onUserSwitched(userId);
         mNfcFServicesCache.onUserSwitched();
-        mNfcFServicesCache.invalidateCache(userId);
+    }
+
+    public void onManagedProfileChanged() {
+        // for HCE
+        mServiceCache.onManagedProfileChanged();
+        // for HCE-F
+        mNfcFServicesCache.onManagedProfileChanged();
     }
 
     public void onNfcEnabled() {
@@ -420,12 +421,12 @@ public class CardEmulationManager implements RegisteredServicesCache.Callback,
         @Override
         public boolean setDefaultForNextTap(int userId, ComponentName service)
                 throws RemoteException {
-            NfcPermissions.validateUserId(userId);
+            NfcPermissions.validateProfileId(mContext, userId);
             NfcPermissions.enforceAdminPermissions(mContext);
             if (service != null && !isServiceRegistered(userId, service)) {
                 return false;
             }
-            return mPreferredServices.setDefaultForNextTap(service);
+            return mPreferredServices.setDefaultForNextTap(userId, service);
         }
 
         @Override
@@ -508,7 +509,7 @@ public class CardEmulationManager implements RegisteredServicesCache.Callback,
         @Override
         public List<ApduServiceInfo> getServices(int userId, String category)
                 throws RemoteException {
-            NfcPermissions.validateUserId(userId);
+            NfcPermissions.validateProfileId(mContext, userId);
             NfcPermissions.enforceAdminPermissions(mContext);
             return mServiceCache.getServicesForCategory(userId, category);
         }
@@ -658,18 +659,18 @@ public class CardEmulationManager implements RegisteredServicesCache.Callback,
     }
 
     @Override
-    public void onPreferredPaymentServiceChanged(ComponentName service) {
+    public void onPreferredPaymentServiceChanged(int userId, ComponentName service) {
         mAidCache.onPreferredPaymentServiceChanged(service);
-        mHostEmulationManager.onPreferredPaymentServiceChanged(service);
+        mHostEmulationManager.onPreferredPaymentServiceChanged(userId, service);
 
         NfcService.getInstance().onPreferredPaymentChanged(
                 NfcAdapter.PREFERRED_PAYMENT_CHANGED);
     }
 
     @Override
-    public void onPreferredForegroundServiceChanged(ComponentName service) {
+    public void onPreferredForegroundServiceChanged(int userId, ComponentName service) {
         mAidCache.onPreferredForegroundServiceChanged(service);
-        mHostEmulationManager.onPreferredForegroundServiceChanged(service);
+        mHostEmulationManager.onPreferredForegroundServiceChanged(userId, service);
 
         NfcService.getInstance().onPreferredPaymentChanged(
                 NfcAdapter.PREFERRED_PAYMENT_CHANGED);

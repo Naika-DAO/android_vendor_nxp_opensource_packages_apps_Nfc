@@ -37,6 +37,7 @@ package com.android.nfc;
 import android.annotation.Nullable;
 import android.nfc.NdefMessage;
 import android.os.Bundle;
+
 import java.io.FileDescriptor;
 import java.io.IOException;
 
@@ -59,12 +60,12 @@ public interface DeviceHost {
          */
         public void onSeListenDeactivated();
 
-        public void onSeInitialized();
-
         /**
          * Notifies SRD event
          */
         public void onNotifySrdEvt(int event);
+
+        public void onNotifyEfdmEvt(int efdmEvt);
 
         /**
          * Notifies P2P Device detected, to activate LLCP link
@@ -81,6 +82,8 @@ public interface DeviceHost {
         public void onRemoteFieldActivated();
 
         public void onRemoteFieldDeactivated();
+
+        public void onEeUpdated();
 
         public void onHwErrorReported();
         /**
@@ -343,6 +346,16 @@ public interface DeviceHost {
     public String getNfaStorageDir();
 
     /**
+    * Get the committed listen mode routing configuration
+    */
+    byte[] getRoutingTable();
+
+    /**
+    * Get the Max Routing Table size from cache
+    */
+    int getMaxRoutingTableSize();
+
+    /**
      * Start or stop RF polling
      */
     void startStopPolling(boolean enable);
@@ -352,8 +365,6 @@ public interface DeviceHost {
     public boolean accessControlForCOSU (int mode);
 
     public int getFWVersion();
-    public byte[] readerPassThruMode(byte status, byte modulationTyp);
-    public byte[] transceiveAppData(byte[] data);
     boolean isNfccBusy();
     int setTransitConfig(String configs);
     public int getRemainingAidTableSize();
@@ -362,10 +373,15 @@ public interface DeviceHost {
     public int setPreferredSimSlot(int uiccSlot);
     public int doSetFieldDetectMode(boolean mode);
     public boolean isFieldDetectEnabled();
+    public int doStartRssiMode(int rssiNtfTimeIntervalInMillisec);
+    public int doStopRssiMode();
+    public boolean isRssiEnabled();
     public int doWriteT4tData(byte[] fileId, byte[] data, int length);
     public byte[] doReadT4tData(byte[] fileId);
     public boolean doLockT4tData(boolean lock);
     public boolean isLockedT4tData();
     public boolean doClearNdefT4tData();
     public int doEnableDebugNtf(byte fieldValue);
+    public int startExtendedFieldDetectMode(int detectionTimeout);
+    public int stopExtendedFieldDetectMode();
 }
