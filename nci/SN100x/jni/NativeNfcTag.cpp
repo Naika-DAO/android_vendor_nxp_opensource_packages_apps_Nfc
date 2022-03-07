@@ -1,27 +1,37 @@
+/*
+ * Copyright (C) 2012 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 /******************************************************************************
- *
- *  Copyright (c) 2016, The Linux Foundation. All rights reserved.
- *  Not a Contribution.
- *
- *  Copyright (C) 2018-2021 NXP
- *  The original Work has been changed by NXP.
- *
- *  Copyright (C) 2012 The Android Open Source Project
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- ******************************************************************************/
-
+*
+*  The original Work has been changed by NXP.
+*
+*  Licensed under the Apache License, Version 2.0 (the "License");
+*  you may not use this file except in compliance with the License.
+*  You may obtain a copy of the License at
+*
+*  http://www.apache.org/licenses/LICENSE-2.0
+*
+*  Unless required by applicable law or agreed to in writing, software
+*  distributed under the License is distributed on an "AS IS" BASIS,
+*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*  See the License for the specific language governing permissions and
+*  limitations under the License.
+*
+*  Copyright 2018-2022 NXP
+*
+******************************************************************************/
 
 #include <android-base/stringprintf.h>
 #include <base/logging.h>
@@ -424,7 +434,8 @@ static jbyteArray nativeNfcTag_doRead(JNIEnv* e, jobject) {
   }
   sReadDataLen = 0;
 
-  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: exit", __func__);
+  DLOG_IF(INFO, nfc_debug_enabled)
+      << StringPrintf("%s: exit: Status = 0x%X", __func__, status);
   return buf;
 }
 
@@ -1372,11 +1383,7 @@ static jbyteArray nativeNfcTag_doTransceive(JNIEnv* e, jobject o,
         DLOG_IF(INFO, nfc_debug_enabled)
             << StringPrintf("%s: reconnect finish", __func__);
       } else if (sCurrentConnectedTargetProtocol == NFC_PROTOCOL_MIFARE) {
-#if (NXP_EXTNS == TRUE)
         uint32_t transDataLen = static_cast<uint32_t>(sRxDataBuffer.size());
-#else
-        uint32_t transDataLen = sRxDataBuffer.size();
-#endif
         uint8_t* transData = (uint8_t*)sRxDataBuffer.data();
         bool doReconnect = false;
 
@@ -1850,8 +1857,8 @@ static jboolean nativeNfcTag_doIsNdefFormatable(JNIEnv* e, jobject o,
   } else if (NFA_PROTOCOL_T3T == protocol) {
     isFormattable = NfcTag::getInstance().isFelicaLite() ? JNI_TRUE : JNI_FALSE;
   } else if (NFA_PROTOCOL_T2T == protocol) {
-    isFormattable = (NfcTag::getInstance().isMifareUltralight() |
-                     NfcTag::getInstance().isInfineonMyDMove() |
+    isFormattable = (NfcTag::getInstance().isMifareUltralight() ||
+                     NfcTag::getInstance().isInfineonMyDMove() ||
                      NfcTag::getInstance().isKovioType2Tag())
                         ? JNI_TRUE
                         : JNI_FALSE;
@@ -2036,6 +2043,8 @@ static jboolean nativeNfcTag_doNdefFormat(JNIEnv* e, jobject o, jbyteArray) {
   if (sCurrentConnectedTargetProtocol == NFA_PROTOCOL_ISO_DEP) {
     int retCode = NFCSTATUS_SUCCESS;
     retCode = nativeNfcTag_doReconnect(e, o);
+    DLOG_IF(INFO, nfc_debug_enabled)
+        << StringPrintf("%s Status = 0x%X", __func__, retCode);
   }
   DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: exit", __func__);
   return (status == NFA_STATUS_OK) ? JNI_TRUE : JNI_FALSE;

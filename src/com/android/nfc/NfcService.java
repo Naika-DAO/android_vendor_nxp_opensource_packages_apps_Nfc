@@ -29,7 +29,7 @@
 *  See the License for the specific language governing permissions and
 *  limitations under the License.
 *
-*  Copyright 2018-2021 NXP
+*  Copyright 2018-2022 NXP
 *
 ******************************************************************************/
 package com.android.nfc;
@@ -1167,7 +1167,9 @@ public class NfcService implements DeviceHostListener {
                     return false;
                 }
                 Log.i(TAG, "Enabling NFC");
-                NfcStatsLog.write(NfcStatsLog.NFC_STATE_CHANGED, NfcStatsLog.NFC_STATE_CHANGED__STATE__ON);
+                NfcStatsLog.write(NfcStatsLog.NFC_STATE_CHANGED,
+                    mIsSecureNfcEnabled ? NfcStatsLog.NFC_STATE_CHANGED__STATE__ON_LOCKED :
+                    NfcStatsLog.NFC_STATE_CHANGED__STATE__ON);
                 updateState(NfcAdapter.STATE_TURNING_ON);
             }
             WatchDogThread watchDog = new WatchDogThread("enableInternal", INIT_WATCHDOG_MS);
@@ -1527,6 +1529,10 @@ public class NfcService implements DeviceHostListener {
             }
 
             synchronized (NfcService.this) {
+                if (mIsSecureNfcEnabled == enable) {
+                    Log.e(TAG, "setNfcSecure error, can't apply the same state twice!");
+                    return false;
+                }
                 Log.i(TAG, "setting Secure NFC " + enable);
                 mPrefsEditor.putBoolean(PREF_SECURE_NFC_ON, enable);
                 mPrefsEditor.apply();
@@ -1534,14 +1540,17 @@ public class NfcService implements DeviceHostListener {
                 mBackupManager.dataChanged();
                 mDeviceHost.setNfcSecure(enable);
                 computeAndSetRoutingParameters();
+                if (mIsHceCapable) {
+                    // update HCE/HCEF routing and commitRouting if Nfc is enabled
+                    mCardEmulationManager.onSecureNfcToggled();
+                } else if (isNfcEnabled()) {
+                    // commit only tech/protocol route without HCE support
+                    mDeviceHost.commitRouting();
+                }
             }
-            if (mIsHceCapable) {
-                mCardEmulationManager.onSecureNfcToggled();
-            }
-            if (enable)
-                NfcStatsLog.write(NfcStatsLog.NFC_STATE_CHANGED, NfcStatsLog.NFC_STATE_CHANGED__STATE__ON_LOCKED);
-            else
-                NfcStatsLog.write(NfcStatsLog.NFC_STATE_CHANGED, NfcStatsLog.NFC_STATE_CHANGED__STATE__ON);
+            NfcStatsLog.write(NfcStatsLog.NFC_STATE_CHANGED,
+                    mIsSecureNfcEnabled ? NfcStatsLog.NFC_STATE_CHANGED__STATE__ON_LOCKED :
+                    NfcStatsLog.NFC_STATE_CHANGED__STATE__ON);
             return true;
         }
 
@@ -3027,7 +3036,7 @@ public class NfcService implements DeviceHostListener {
                 int rwSize,int testCaseId) throws RemoteException {
             NfcPermissions.enforceAdminPermissions(mContext);
 
-            if (serviceName.equals(null) || !mIsBeamCapable)
+            if (serviceName == null || !mIsBeamCapable)
                 return false;
 
             mP2pLinkManager.enableExtDtaSnepServer(serviceName, serviceSap, miu, rwSize,testCaseId);
@@ -3069,7 +3078,7 @@ public class NfcService implements DeviceHostListener {
         public boolean registerMessageService(String msgServiceName)
                 throws RemoteException {
             NfcPermissions.enforceAdminPermissions(mContext);
-            if(msgServiceName.equals(null))
+            if(msgServiceName == null)
                 return false;
 
             DtaServiceConnector.setMessageService(msgServiceName);
@@ -3776,6 +3785,13 @@ public class NfcService implements DeviceHostListener {
                     break;
                 }
                 case MSG_COMMIT_ROUTING: {
+                    synchronized (NfcService.this) {
+                        if (mState == NfcAdapter.STATE_OFF
+                                || mState == NfcAdapter.STATE_TURNING_OFF) {
+                            Log.d(TAG, "Skip commit routing when NFCC is off or turning off");
+                            return;
+                        }
+                    }
                     Log.d(TAG, "commitRouting >>>");
                     int defaultRoute = getConfiguredDefaultRouteEntry();
                     mDeviceHost.setEmptyAidRoute(defaultRoute);
@@ -4372,6 +4388,8 @@ public class NfcService implements DeviceHostListener {
                 Log.e(TAG, "Error in isNfcEventAllowed() " + e);
             } catch (UnsupportedEncodingException e) {
                 Log.e(TAG, "Incorrect format for Secure Element name" + e);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Error " + e);
             }
         }
 
@@ -4428,6 +4446,8 @@ public class NfcService implements DeviceHostListener {
                     }
                 } catch (RemoteException e) {
                     Log.e(TAG, "Error in isNfcEventAllowed() " + e);
+                } catch (IllegalArgumentException e) {
+                    Log.e(TAG, "Error " + e);
                 }
             }
             if (nfcAccessFinal == null) {
@@ -4767,7 +4787,7 @@ public class NfcService implements DeviceHostListener {
                 }
                 int screenState = mScreenStateHelper.checkScreenState();
                 if (screenState != mScreenState) {
-                    new ApplyRoutingTask().execute(Integer.valueOf(screenState));
+                    sendMessage(NfcService.MSG_APPLY_SCREEN_STATE, screenState);
                 }
             }
         }
@@ -4785,6 +4805,9 @@ public class NfcService implements DeviceHostListener {
                 return;
             }
 
+            if (mCardEmulationManager == null) {
+                return;
+            }
             if (action.equals(Intent.ACTION_MANAGED_PROFILE_ADDED) ||
                     action.equals(Intent.ACTION_MANAGED_PROFILE_AVAILABLE) ||
                     action.equals(Intent.ACTION_MANAGED_PROFILE_REMOVED) ||

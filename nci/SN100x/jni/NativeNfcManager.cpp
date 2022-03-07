@@ -1,27 +1,37 @@
-
+/*
+ * Copyright (C) 2012 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 /******************************************************************************
- *
- *  Copyright (c) 2016, The Linux Foundation. All rights reserved.
- *  Not a Contribution.
- *
- *  Copyright (C) 2018-2021 NXP
- *  The original Work has been changed by NXP.
- *
- *  Copyright (C) 2012 The Android Open Source Project
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- ******************************************************************************/
+*
+*  The original Work has been changed by NXP.
+*
+*  Licensed under the Apache License, Version 2.0 (the "License");
+*  you may not use this file except in compliance with the License.
+*  You may obtain a copy of the License at
+*
+*  http://www.apache.org/licenses/LICENSE-2.0
+*
+*  Unless required by applicable law or agreed to in writing, software
+*  distributed under the License is distributed on an "AS IS" BASIS,
+*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*  See the License for the specific language governing permissions and
+*  limitations under the License.
+*
+*  Copyright 2018-2022 NXP
+*
+******************************************************************************/
 #include <android-base/stringprintf.h>
 #include <base/logging.h>
 #include <cutils/properties.h>
@@ -1820,6 +1830,10 @@ static void nfcManager_enableDiscovery(JNIEnv* e, jobject o,
   tNFA_TECHNOLOGY_MASK tech_mask = DEFAULT_TECH_MASK;
   struct nfc_jni_native_data* nat = getNative(e, o);
 #if(NXP_EXTNS == TRUE)
+  // If Nfc is disabling or disabled shall return
+  if (sIsDisabling || !sIsNfaEnabled)
+    return;
+
   waitIfRfStateActive();
   storeLastDiscoveryParams(technologies_mask, enable_lptd,
         reader_mode, enable_host_routing ,enable_p2p, restart);
@@ -1952,6 +1966,12 @@ void nfcManager_disableDiscovery(JNIEnv* e, jobject o) {
   tNFA_STATUS status = NFA_STATUS_OK;
   DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: enter;", __func__);
 
+#if(NXP_EXTNS == TRUE)
+  // If Nfc is disabling or disabled shall return
+  if (sIsDisabling || !sIsNfaEnabled)
+    return;
+#endif
+
   if (sDiscoveryEnabled == false) {
     DLOG_IF(INFO, nfc_debug_enabled)
         << StringPrintf("%s: already disabled", __func__);
@@ -1970,7 +1990,8 @@ void nfcManager_disableDiscovery(JNIEnv* e, jobject o) {
   if (!PowerSwitch::getInstance().setModeOff(PowerSwitch::DISCOVERY))
     PowerSwitch::getInstance().setLevel(PowerSwitch::LOW_POWER);
 TheEnd:
-  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: exit", __func__);
+  DLOG_IF(INFO, nfc_debug_enabled)
+      << StringPrintf("%s: exit: Status = 0x%X", __func__, status);
 }
 #if (NXP_EXTNS==FALSE)
 void enableDisableLptd(bool enable) {
@@ -2173,6 +2194,7 @@ static jboolean nfcManager_doDeinitialize(JNIEnv*, jobject) {
   sAbortConnlessWait = true;
   nativeLlcpConnectionlessSocket_abortWait();
   sIsNfaEnabled = false;
+  sRoutingInitialized = false;
   sDiscoveryEnabled = false;
   sPollingEnabled = false;
   sIsDisabling = false;
@@ -3259,17 +3281,11 @@ static jboolean nfcManager_doSetNfcSecure(JNIEnv* e, jobject o,
                                           jboolean enable) {
   RoutingManager& routingManager = RoutingManager::getInstance();
   routingManager.setNfcSecure(enable);
-#if(NXP_EXTNS != TRUE)
-  bool rfEnabled = sRfEnabled;
-#endif
   if (sRoutingInitialized) {
 #if(NXP_EXTNS != TRUE)
       routingManager.disableRoutingToHost();
-      if (rfEnabled) startRfDiscovery(false);
       routingManager.updateRoutingTable();
       routingManager.enableRoutingToHost();
-      routingManager.commitRouting();
-      if (rfEnabled) startRfDiscovery(true);
 #else
       routingManager.updateRoutingTable();
 #endif
