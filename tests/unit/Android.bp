@@ -3,7 +3,7 @@ package {
 }
 
 android_test {
-    name: "NfcNciInstrumentationTests",
+    name: "snNfcNciInstrumentationTests",
 
     certificate: "platform",
 
