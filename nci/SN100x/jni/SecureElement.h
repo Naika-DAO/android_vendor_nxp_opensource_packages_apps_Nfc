@@ -12,7 +12,7 @@
 *  See the License for the specific language governing permissions and
 *  limitations under the License.
 *
-*  Copyright 2018-2021 NXP
+*  Copyright 2018-2022 NXP
 *
 ******************************************************************************/
 
@@ -75,6 +75,7 @@ public:
   bool mErrorRecovery;
   SyncEvent   mPwrLinkCtrlEvent;
   SyncEvent   mEERecoveryComplete;
+  SyncEvent   mHciSendEvent; //Event to wait on the call of NFA_HciSendEvent(...)
   tNFA_HANDLE EE_HANDLE_0xF4;   //handle to secure element in slot 1
   static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4C0;//0x401; //handle to secure element in slot 0
   static const tNFA_HANDLE EE_HANDLE_0xF8 = 0x481; //handle to secure element in slot 2
@@ -163,7 +164,8 @@ void getEeHandleList(tNFA_HANDLE *list, uint8_t* count);
   uint8_t mNumEePresent;          // actual number of usable EE's
   uint8_t     mCreatedPipe;
   static uint8_t mStaticPipeProp;
-  Mutex           mMutex; // protects fields below
+  Mutex mTimeoutHandleMutex; // Used to Sync handleTransceiveTimeout() & releasePendingTransceive()
+  Mutex mMutex; // protects fields below
   struct timespec mLastRfFieldToggle; // last time RF field went off
 
 
@@ -215,6 +217,18 @@ bool notifySeInitialized();
 **
 *******************************************************************************/
 static void nfaHciCallback(tNFA_HCI_EVT event, tNFA_HCI_EVT_DATA* eventData);
+
+/*******************************************************************************
+**
+** Function:        handleTransceiveTimeout
+**
+** Description:     Reset eSE via power link & Mode set command
+**                  after Transceive Timed out.
+**
+** Returns:         None
+**
+*******************************************************************************/
+void handleTransceiveTimeout(uint8_t powerConfigValue);
 
 public:
 #if(NXP_EXTNS == TRUE)

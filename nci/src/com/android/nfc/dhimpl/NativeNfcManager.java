@@ -1,9 +1,4 @@
 /*
- * Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
- * Not a Contribution.
- *
- * Copyright (C) 2018-2021 NXP
- * The original Work has been changed by NXP.
  * Copyright (C) 2010 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,6 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/******************************************************************************
+*
+*  The original Work has been changed by NXP.
+*
+*  Licensed under the Apache License, Version 2.0 (the "License");
+*  you may not use this file except in compliance with the License.
+*  You may obtain a copy of the License at
+*
+*  http://www.apache.org/licenses/LICENSE-2.0
+*
+*  Unless required by applicable law or agreed to in writing, software
+*  distributed under the License is distributed on an "AS IS" BASIS,
+*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*  See the License for the specific language governing permissions and
+*  limitations under the License.
+*
+*  Copyright 2018-2021 NXP
+*
+******************************************************************************/
 package com.android.nfc.dhimpl;
 
 import android.content.Context;
@@ -32,8 +46,8 @@ import com.android.nfc.NfcDiscoveryParameters;
 
 import java.io.FileDescriptor;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.HashMap;
+import java.util.Iterator;
 import android.os.SystemProperties;
 
 import android.os.RemoteException;
@@ -78,6 +92,7 @@ public class NativeNfcManager implements DeviceHost {
     private final DeviceHostListener mListener;
     private final NativeNfcMposManager mMposMgr;
     private final NativeT4tNfceeManager mT4tNfceeMgr;
+    private final NativeExtFieldDetectManager mExtFieldMgr;
     private final Context mContext;
 
     private final Object mLock = new Object();
@@ -89,6 +104,7 @@ public class NativeNfcManager implements DeviceHost {
         mContext = context;
         mMposMgr = new NativeNfcMposManager();
         mT4tNfceeMgr = new NativeT4tNfceeManager();
+        mExtFieldMgr = new NativeExtFieldDetectManager();
     }
 
     //Static function to getChip-ID
@@ -291,6 +307,15 @@ public class NativeNfcManager implements DeviceHost {
     @Override
     public native boolean isFieldDetectEnabled();
 
+    @Override
+    public native int doStartRssiMode(int rssiNtfTimeIntervalInMillisec);
+
+    @Override
+    public native int doStopRssiMode();
+
+    @Override
+    public native boolean isRssiEnabled();
+
     public native int doRegisterT3tIdentifier(byte[] t3tIdentifier);
 
     @Override
@@ -393,6 +418,14 @@ public class NativeNfcManager implements DeviceHost {
     @Override
     public byte[] doReadT4tData(byte[] fileId) {
       return mT4tNfceeMgr.doReadT4tData(fileId);
+    }
+    @Override
+    public int startExtendedFieldDetectMode(int detectionTimeout) {
+      return mExtFieldMgr.startExtendedFieldDetectMode(detectionTimeout);
+    }
+    @Override
+    public int stopExtendedFieldDetectMode() {
+      return mExtFieldMgr.stopExtendedFieldDetectMode();
     }
     @Override
     public boolean doLockT4tData(boolean lock) {
@@ -605,6 +638,12 @@ public class NativeNfcManager implements DeviceHost {
         doStartStopPolling(start);
     }
 
+    @Override
+    public native byte[] getRoutingTable();
+
+    @Override
+    public native int getMaxRoutingTableSize();
+
     /**
      * Notifies Ndef Message (TODO: rename into notifyTargetDiscovered)
      */
@@ -619,12 +658,12 @@ public class NativeNfcManager implements DeviceHost {
         mListener.onSeListenDeactivated();
     }
 
-    private void notifySeInitialized() {
-        mListener.onSeInitialized();
-    }
-
     private void notifySrdEvt(int event) {
         mListener.onNotifySrdEvt(event);
+    }
+
+    private void notifyEfdmEvt(int efdmEvt) {
+        mListener.onNotifyEfdmEvt(efdmEvt);
     }
 
     /**
@@ -684,6 +723,11 @@ public class NativeNfcManager implements DeviceHost {
     private void notifyTransactionListeners(byte[] aid, byte[] data, String evtSrc) {
         mListener.onNfcTransactionEvent(aid, data, evtSrc);
     }
+
+    private void notifyEeUpdated() {
+        mListener.onEeUpdated();
+    }
+
     /**
      * Notifies Tag abort operation
      */
@@ -693,10 +737,6 @@ public class NativeNfcManager implements DeviceHost {
 /* NXP extension are here */
     @Override
     public native int getFWVersion();
-    @Override
-    public native byte[] readerPassThruMode(byte status, byte modulationTyp);
-    @Override
-    public native byte[] transceiveAppData(byte[] data);
     @Override
     public native boolean isNfccBusy();
     @Override

@@ -34,6 +34,7 @@
 #include "HciEventManager.h"
 #include <android-base/stringprintf.h>
 #include <base/logging.h>
+#include <log/log.h>
 #include <nativehelper/ScopedLocalRef.h>
 #include "JavaClassConstants.h"
 #include "NfcJniUtil.h"
@@ -183,7 +184,7 @@ void HciEventManager::nfaHciCallback(tNFA_HCI_EVT event,
     evtSrc = "SIM2";
 #endif
   } else {
-    LOG(ERROR) << "Incorrect Pipe Id";
+    LOG(WARNING) << "Incorrect Pipe Id";
     return;
   }
 

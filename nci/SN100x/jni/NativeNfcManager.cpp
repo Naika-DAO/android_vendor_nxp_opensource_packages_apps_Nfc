@@ -1,27 +1,37 @@
-
+/*
+ * Copyright (C) 2012 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 /******************************************************************************
- *
- *  Copyright (c) 2016, The Linux Foundation. All rights reserved.
- *  Not a Contribution.
- *
- *  Copyright (C) 2018-2021 NXP
- *  The original Work has been changed by NXP.
- *
- *  Copyright (C) 2012 The Android Open Source Project
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- ******************************************************************************/
+*
+*  The original Work has been changed by NXP.
+*
+*  Licensed under the Apache License, Version 2.0 (the "License");
+*  you may not use this file except in compliance with the License.
+*  You may obtain a copy of the License at
+*
+*  http://www.apache.org/licenses/LICENSE-2.0
+*
+*  Unless required by applicable law or agreed to in writing, software
+*  distributed under the License is distributed on an "AS IS" BASIS,
+*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*  See the License for the specific language governing permissions and
+*  limitations under the License.
+*
+*  Copyright 2018-2022 NXP
+*
+******************************************************************************/
 #include <android-base/stringprintf.h>
 #include <base/logging.h>
 #include <cutils/properties.h>
@@ -31,6 +41,7 @@
 #include <nativehelper/ScopedPrimitiveArray.h>
 #include <nativehelper/ScopedUtfChars.h>
 #include <semaphore.h>
+
 #include "HciEventManager.h"
 #include "JavaClassConstants.h"
 #include "NfcAdaptation.h"
@@ -40,42 +51,32 @@
 #include "PowerSwitch.h"
 #include "RoutingManager.h"
 #include "SyncEvent.h"
-#include "nfc_config.h"
 #if(NXP_EXTNS == TRUE)
-#include "MposManager.h"
-#include "SecureElement.h"
 #include "DwpChannel.h"
+#include "MposManager.h"
+#include "NativeExtFieldDetect.h"
 #include "NativeJniExtns.h"
 #include "NativeT4tNfcee.h"
-#include "nfa_nfcee_int.h"
 #include "NfcSelfTest.h"
+#include "SecureElement.h"
+#include "nfa_nfcee_int.h"
 #if (NXP_SRD == TRUE)
 #include "SecureDigitization.h"
 #endif
 #endif
 
 #include "ce_api.h"
+#include "debug_lmrt.h"
 #include "nfa_api.h"
 #include "nfa_ee_api.h"
 #include "nfa_p2p_api.h"
 #include "nfc_brcm_defs.h"
+#include "nfc_config.h"
 #include "phNxpExtns.h"
 #include "rw_api.h"
 
 using android::base::StringPrintf;
 #if(NXP_EXTNS == TRUE)
-#define RDR_PASS_THRU_MODE_DISABLE (0x0)
-#define RDR_PASS_THRU_MODE_ENABLE (0x1)
-#define RDR_PASS_THRU_MODE_XCV (0x2)
-#define RDR_PASS_THRU_ENABLE_TIMEOUT (1030)
-#define RDR_PASS_THRU_DISABLE_TIMEOUT (1030)
-#define RDR_PASS_THRU_XCV_TIMEOUT (1100)
-
-#define RDR_PASS_THRU_MOD_TYPE_A (0x0)
-#define RDR_PASS_THRU_MOD_TYPE_B (0x1)
-#define RDR_PASS_THRU_MOD_TYPE_V (0x2)
-#define RDR_PASS_THRU_MOD_TYPE_LIMIT (0x3)
-#define CMD_HDR_SIZE_XCV (0x3)
 #define SECURE_ELEMENT_UICC_SLOT_DEFAULT (0x01)
 
 bool isDynamicUiccEnabled;
@@ -119,16 +120,10 @@ extern void nativeLlcpConnectionlessSocket_receiveData(uint8_t* data,
 #if(NXP_EXTNS == TRUE)
 extern tNFA_STATUS Nxp_doResonantFrequency(bool modeOn);
 extern tNFA_STATUS nativeNfcTag_safeDisconnect();
-void handleWiredmode(bool isShutdown);
 int nfcManager_doPartialInitialize(JNIEnv* e, jobject o, jint mode);
 int nfcManager_doPartialDeInitialize(JNIEnv* e, jobject o);
 extern tNFA_STATUS NxpNfc_Write_Cmd_Common(uint8_t retlen, uint8_t* buffer);
 extern void NxpNfc_GetHwInfo(void);
-extern void NxpPropCmd_OnResponseCallback(uint8_t event, uint16_t param_len,
-                                            uint8_t * p_param);
-extern tNFA_STATUS NxpPropCmd_send(uint8_t * pData4Tx, uint8_t dataLen,
-                                   uint8_t * rsp_len, uint8_t * rsp_buf,
-                                   uint32_t rspTimeout, tHAL_NFC_ENTRY * halMgr);
 extern tNFA_STATUS send_flush_ram_to_flash();
 extern bool nativeNfcTag_checkActivatedProtoParameters(
     tNFA_ACTIVATED& activationData);
@@ -206,15 +201,16 @@ const char*             gNativeNfcMposManagerClassName       =
     "com/android/nfc/dhimpl/NativeNfcMposManager";
 const char* gNativeT4tNfceeClassName =
     "com/android/nfc/dhimpl/NativeT4tNfceeManager";
+const char* gNativeExtFieldDetectClassName =
+    "com/android/nfc/dhimpl/NativeExtFieldDetectManager";
 void enableLastRfDiscovery();
 void storeLastDiscoveryParams(int technologies_mask, bool enable_lptd,
                               bool reader_mode, bool enable_host_routing,
                               bool enable_p2p, bool restart);
-void configureNfccConfigControl(bool flag);
 #endif
 jmethodID  gCachedNfcManagerNotifySeListenActivated;
 jmethodID  gCachedNfcManagerNotifySeListenDeactivated;
-jmethodID  gCachedNfcManagerNotifySeInitialized;
+jmethodID  gCachedNfcManagerNotifyEeUpdated;
 void doStartupConfig();
 void startStopPolling(bool isStartPolling);
 void startRfDiscovery(bool isStart);
@@ -253,6 +249,7 @@ static bool sP2pActive = false;  // whether p2p was last active
 static bool sAbortConnlessWait = false;
 static jint sLfT3tMax = 0;
 static bool sRoutingInitialized = false;
+static bool sIsRecovering = false;
 
 #define CONFIG_UPDATE_TECH_MASK (1 << 1)
 #define DEFAULT_TECH_MASK                                                  \
@@ -282,6 +279,8 @@ typedef enum {
   FDSTATUS_ERROR_UNKNOWN
 } field_detect_status_t;
 
+typedef field_detect_status_t rssi_status_t;
+
 #endif
 
 static void nfaConnectionCallback(uint8_t event, tNFA_CONN_EVT_DATA* eventData);
@@ -303,11 +302,6 @@ static void nfcManager_doSetScreenState(JNIEnv* e, jobject o,
                                         jint screen_state_mask);
 #if(NXP_EXTNS == TRUE)
 static jint nfcManager_getFwVersion(JNIEnv* e, jobject o);
-static jbyteArray nfcManager_readerPassThruMode(JNIEnv *e, jobject o,
-                                                jbyte rqst,
-                                                jbyte modulationTyp);
-static jbyteArray nfcManager_transceiveAppData(JNIEnv *e, jobject o,
-                                               jbyteArray data);
 static bool nfcManager_isNfccBusy(JNIEnv*, jobject);
 static int nfcManager_setTransitConfig(JNIEnv* e, jobject o, jstring config);
 std::string ConvertJavaStrToStdString(JNIEnv* env, jstring s);
@@ -320,6 +314,9 @@ static int nfcManager_staticDualUicc_Precondition(int uiccSlot);
 static int nfcManager_setPreferredSimSlot(JNIEnv* e, jobject o, jint uiccSlot);
 static bool nfcManager_deactivateOnPollDisabled(tNFA_ACTIVATED& activated);
 static jint nfcManager_enableDebugNtf(JNIEnv* e, jobject o, jbyte fieldValue);
+static void waitIfRfStateActive();
+static rssi_status_t nfcManager_doSetRssiMode(bool enable,
+                                              int rssiNtfTimeIntervalInMillisec);
 #endif
 static uint16_t sCurrentConfigLen;
 static uint8_t sConfig[256];
@@ -345,14 +342,9 @@ void initializeGlobalDebugEnabledFlag() {
   nfc_debug_enabled =
       (NfcConfig::getUnsigned(NAME_NFC_DEBUG_ENABLED, 1) != 0) ? true : false;
 
-  char valueStr[PROPERTY_VALUE_MAX] = {0};
-  int len = property_get("nfc.debug_enabled", valueStr, "");
-  if (len > 0) {
-    unsigned debug_enabled = 1;
-    // let Android property override .conf variable
-    sscanf(valueStr, "%u", &debug_enabled);
-    nfc_debug_enabled = (debug_enabled == 0) ? false : true;
-  }
+  bool debug_enabled = property_get_bool("persist.nfc.debug_enabled", false);
+
+  nfc_debug_enabled = (nfc_debug_enabled || debug_enabled);
 
   DLOG_IF(INFO, nfc_debug_enabled)
       << StringPrintf("%s: level=%u", __func__, nfc_debug_enabled);
@@ -493,6 +485,11 @@ static void nfaConnectionCallback(uint8_t connEvent,
                           __func__, eventData->status);
 
       gActivated = false;
+#if (NXP_EXTNS == TRUE)
+      if (SecureElement::getInstance().isRfFieldOn()) {
+        SecureElement::getInstance().mRfFieldIsOn= false;
+      }
+#endif
 
       SyncEventGuard guard(sNfaEnableDisablePollingEvent);
       sNfaEnableDisablePollingEvent.notifyOne();
@@ -555,6 +552,10 @@ static void nfaConnectionCallback(uint8_t connEvent,
 #if (NXP_EXTNS == TRUE)
       if (eventData->status == NFC_DEACTIVATE_REASON_DH_REQ_FAILED) {
         NfcTag::getInstance().isIsoDepDhReqFailed = true;
+        NfcTag::getInstance().connectionEventHandler(connEvent, eventData);
+      }
+      if (gIsWaiting4Deact2SleepNtf) {
+        gIsWaiting4Deact2SleepNtf = false;
       }
 #endif
       break;
@@ -977,6 +978,7 @@ static jboolean nfcManager_initNativeStruc(JNIEnv* e, jobject o) {
   e->SetLongField(o, f, (jlong)nat);
 #if(NXP_EXTNS == TRUE)
   MposManager::initMposNativeStruct(e, o);
+  NativeExtFieldDetect::getInstance().initEfdmNativeStruct(e, o);
 #if (NXP_SRD == TRUE)
   SecureDigitization::getInstance().initSrdNativeStruct(e, o);
 #endif
@@ -1008,6 +1010,8 @@ static jboolean nfcManager_initNativeStruc(JNIEnv* e, jobject o) {
       e->GetMethodID(cls.get(), "notifyRfFieldActivated", "()V");
   gCachedNfcManagerNotifyRfFieldDeactivated =
       e->GetMethodID(cls.get(), "notifyRfFieldDeactivated", "()V");
+  gCachedNfcManagerNotifyEeUpdated =
+      e->GetMethodID(cls.get(),"notifyEeUpdated", "()V");
   gCachedNfcManagerNotifyHwErrorReported =
       e->GetMethodID(cls.get(), "notifyHwErrorReported", "()V");
 #if(NXP_EXTNS == TRUE)
@@ -1018,8 +1022,6 @@ static jboolean nfcManager_initNativeStruc(JNIEnv* e, jobject o) {
       e->GetMethodID(cls.get(),"notifySeListenActivated", "()V");
   gCachedNfcManagerNotifySeListenDeactivated =
       e->GetMethodID(cls.get(),"notifySeListenDeactivated", "()V");
-  gCachedNfcManagerNotifySeInitialized =
-      e->GetMethodID(cls.get(),"notifySeInitialized", "()V");
   gCachedNfcManagerNotifyTagAbortListeners =
       e->GetMethodID(cls.get(), "notifyTagAbort", "()V");
 #endif
@@ -1113,6 +1115,10 @@ void nfaDeviceManagementCallback(uint8_t dmEvent,
           "%s: NFA_DM_RF_FIELD_EVT; status=0x%X; field status=%u", __func__,
           eventData->rf_field.status, eventData->rf_field.rf_field_status);
 #if(NXP_EXTNS == TRUE)
+      if (extFieldDetectMode.isextendedFieldDetectMode() &&
+          (eventData->rf_field.rf_field_status == NFA_DM_RF_FIELD_ON)) {
+        extFieldDetectMode.startEfdmTimer();
+      }
       SecureElement::getInstance().notifyRfFieldEvent (
                     eventData->rf_field.rf_field_status == NFA_DM_RF_FIELD_ON);
 #else
@@ -1152,8 +1158,46 @@ if (!sP2pActive && eventData->rf_field.status == NFA_STATUS_OK) {
         }
         LOG(ERROR) << StringPrintf("%s: toggle NFC state to recovery nfc",
                                    __func__);
+        sIsRecovering = true;
         e->CallVoidMethod(nat->manager,
                           android::gCachedNfcManagerNotifyHwErrorReported);
+        {
+          DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
+              "%s: aborting  sNfaEnableDisablePollingEvent", __func__);
+          SyncEventGuard guard(sNfaEnableDisablePollingEvent);
+          sNfaEnableDisablePollingEvent.notifyOne();
+        }
+        {
+          DLOG_IF(INFO, nfc_debug_enabled)
+              << StringPrintf("%s: aborting  sNfaEnableEvent", __func__);
+          SyncEventGuard guard(sNfaEnableEvent);
+          sNfaEnableEvent.notifyOne();
+        }
+        {
+          DLOG_IF(INFO, nfc_debug_enabled)
+              << StringPrintf("%s: aborting  sNfaDisableEvent", __func__);
+          SyncEventGuard guard(sNfaDisableEvent);
+          sNfaDisableEvent.notifyOne();
+        }
+        {
+          DLOG_IF(INFO, nfc_debug_enabled)
+              << StringPrintf("%s: aborting  sNfaSetPowerSubState", __func__);
+          SyncEventGuard guard(sNfaSetPowerSubState);
+          sNfaSetPowerSubState.notifyOne();
+        }
+        {
+          DLOG_IF(INFO, nfc_debug_enabled)
+              << StringPrintf("%s: aborting  sNfaSetConfigEvent", __func__);
+          SyncEventGuard guard(sNfaSetConfigEvent);
+          sNfaSetConfigEvent.notifyOne();
+        }
+        {
+          DLOG_IF(INFO, nfc_debug_enabled)
+              << StringPrintf("%s: aborting  sNfaGetConfigEvent", __func__);
+          SyncEventGuard guard(sNfaGetConfigEvent);
+          sNfaGetConfigEvent.notifyOne();
+        }
+
       } else {
         nativeNfcTag_abortWaits();
         NfcTag::getInstance().abort();
@@ -1372,6 +1416,7 @@ static jboolean nfcManager_routeAid(JNIEnv* e, jobject, jbyteArray aid,
   uint8_t* buf;
   size_t bufLen;
 #if (NXP_EXTNS == TRUE)
+  static int sT4tPowerState = 0;
   if (aid == NULL)
     RoutingManager::getInstance().checkAndUpdateAltRoute(route);
   SecureElement& se = SecureElement::getInstance();
@@ -1402,7 +1447,10 @@ static jboolean nfcManager_routeAid(JNIEnv* e, jobject, jbyteArray aid,
 #if (NXP_EXTNS == TRUE)
   if (route == SecureElement::getInstance().T4T_NFCEE_ID) {
     NativeT4tNfcee::getInstance().checkAndUpdateT4TAid(buf, (uint8_t*)&bufLen);
-    RoutingManager::getInstance().removeAidRouting(buf, bufLen);
+    if (sT4tPowerState != power) {
+      sT4tPowerState = power;
+      RoutingManager::getInstance().removeAidRouting(buf, bufLen);
+    }
   }
 #endif
   return RoutingManager::getInstance().addAidRouting(buf, bufLen, route,
@@ -1450,12 +1498,9 @@ static jboolean nfcManager_unrouteAid(JNIEnv* e, jobject, jbyteArray aid) {
 static jboolean nfcManager_commitRouting(JNIEnv* e, jobject) {
 #if (NXP_EXTNS == TRUE)
   bool status = false;
-  SecureElement& se = SecureElement::getInstance();
 
-  if (se.isRfFieldOn() || se.mActivatedInListenMode) {
-    /* Delay is required to avoid update routing during RF Field session*/
-    usleep(1000 * 1000);
-  }
+  waitIfRfStateActive();
+
   if (sIsDisabling || !sIsNfaEnabled) {
     return status;
   }
@@ -1568,6 +1613,7 @@ static jboolean nfcManager_doInitialize(JNIEnv* e, jobject o) {
 #endif
   initializeGlobalDebugEnabledFlag();
   tNFA_STATUS stat = NFA_STATUS_OK;
+  sIsRecovering = false;
 
   PowerSwitch& powerSwitch = PowerSwitch::getInstance();
 
@@ -1635,6 +1681,7 @@ static jboolean nfcManager_doInitialize(JNIEnv* e, jobject o) {
 #if(NXP_EXTNS == TRUE)
         MposManager::getInstance().initialize(getNative(e, o));
         NativeT4tNfcee::getInstance().initialize();
+        NativeExtFieldDetect::getInstance().initialize(getNative(e, o));
 #if (NXP_SRD == TRUE)
         SecureDigitization::getInstance().initialize(getNative(e, o));
 #endif
@@ -1739,7 +1786,6 @@ static void nfcManager_doShutdown(JNIEnv*, jobject) {
   NfcAdaptation& theInstance = NfcAdaptation::GetInstance();
 #if (NXP_EXTNS == TRUE)
   NativeT4tNfcee::getInstance().onNfccShutdown();
-  handleWiredmode(true); /* Device off*/
   sIsDisabling = false;
   sIsNfaEnabled = false;
 #endif
@@ -1759,20 +1805,6 @@ static void nfcManager_configNfccConfigControl(bool flag) {
     }
   }
 }
-#if(NXP_EXTNS == TRUE)
-/*******************************************************************************
-**
-** Function:        configureNfccConfigControl
-**
-** Description:     The Wrapper of nfcManager_configNfccConfigControl.
-**
-** Returns:         None
-**
-*******************************************************************************/
-void configureNfccConfigControl(bool flag) {
-   nfcManager_configNfccConfigControl(flag);
-}
-#endif
 
 /*******************************************************************************
 **
@@ -1798,11 +1830,11 @@ static void nfcManager_enableDiscovery(JNIEnv* e, jobject o,
   tNFA_TECHNOLOGY_MASK tech_mask = DEFAULT_TECH_MASK;
   struct nfc_jni_native_data* nat = getNative(e, o);
 #if(NXP_EXTNS == TRUE)
-  SecureElement& se = SecureElement::getInstance();
-  if (se.isRfFieldOn() || se.mActivatedInListenMode) {
-    /* Delay is required if CE is ongoing */
-    usleep(1000 * 1000);
-  }
+  // If Nfc is disabling or disabled shall return
+  if (sIsDisabling || !sIsNfaEnabled)
+    return;
+
+  waitIfRfStateActive();
   storeLastDiscoveryParams(technologies_mask, enable_lptd,
         reader_mode, enable_host_routing ,enable_p2p, restart);
 #endif
@@ -1812,8 +1844,14 @@ static void nfcManager_enableDiscovery(JNIEnv* e, jobject o,
     tech_mask = (tNFA_TECHNOLOGY_MASK)technologies_mask;
 
 #if (NXP_EXTNS == TRUE)
+#if (NXP_QTAG == TRUE)
+  uint16_t default_tech_mask =
+      NfcConfig::getUnsigned(NAME_POLLING_TECH_MASK, DEFAULT_TECH_MASK);
+  default_tech_mask |= NFA_TECHNOLOGY_MASK_Q;
+#else
   uint8_t default_tech_mask =
       NfcConfig::getUnsigned(NAME_POLLING_TECH_MASK, DEFAULT_TECH_MASK);
+#endif
   tech_mask &= default_tech_mask;
 #endif
 
@@ -1928,6 +1966,12 @@ void nfcManager_disableDiscovery(JNIEnv* e, jobject o) {
   tNFA_STATUS status = NFA_STATUS_OK;
   DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: enter;", __func__);
 
+#if(NXP_EXTNS == TRUE)
+  // If Nfc is disabling or disabled shall return
+  if (sIsDisabling || !sIsNfaEnabled)
+    return;
+#endif
+
   if (sDiscoveryEnabled == false) {
     DLOG_IF(INFO, nfc_debug_enabled)
         << StringPrintf("%s: already disabled", __func__);
@@ -1946,7 +1990,8 @@ void nfcManager_disableDiscovery(JNIEnv* e, jobject o) {
   if (!PowerSwitch::getInstance().setModeOff(PowerSwitch::DISCOVERY))
     PowerSwitch::getInstance().setLevel(PowerSwitch::LOW_POWER);
 TheEnd:
-  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: exit", __func__);
+  DLOG_IF(INFO, nfc_debug_enabled)
+      << StringPrintf("%s: exit: Status = 0x%X", __func__, status);
 }
 #if (NXP_EXTNS==FALSE)
 void enableDisableLptd(bool enable) {
@@ -2111,28 +2156,25 @@ static jint nfcManager_doGetLastError(JNIEnv*, jobject) {
 *******************************************************************************/
 static jboolean nfcManager_doDeinitialize(JNIEnv*, jobject) {
   DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: enter", __func__);
+  sIsDisabling = true;
 
 #if (NXP_EXTNS == TRUE)
+  NativeExtFieldDetect::getInstance().deinitialize();
   NativeJniExtns::getInstance().notifyNfcEvent(__func__);
   if (SecureElement::getInstance().mIsSeIntfActivated) {
     nfcManager_dodeactivateSeInterface(NULL, NULL);
   }
-  handleWiredmode(false); /* Nfc Off*/
-#endif
-  sIsDisabling = true;
 
-#if (NXP_EXTNS == TRUE)
   if(NFA_STATUS_OK != NFA_RegVSCback (false,nfaVSCNtfCallback)) { //De-Register Lx Debug CallBack
     LOG(ERROR) << StringPrintf("%s:  nfaVSCNtfCallback Deresgister failed..!", __func__);
   }
   NativeT4tNfcee::getInstance().onNfccShutdown();
 #endif
-  RoutingManager::getInstance().onNfccShutdown();
+  if (!recovery_option || !sIsRecovering) {
+    RoutingManager::getInstance().onNfccShutdown();
+  }
   PowerSwitch::getInstance().initialize(PowerSwitch::UNKNOWN_LEVEL);
   HciEventManager::getInstance().finalize();
-#if (NXP_EXTNS == TRUE)
-  SecureElement::getInstance().releasePendingTransceive();
-#endif
   if (sIsNfaEnabled) {
     SyncEventGuard guard(sNfaDisableEvent);
     EXTNS_Close();
@@ -2152,10 +2194,12 @@ static jboolean nfcManager_doDeinitialize(JNIEnv*, jobject) {
   sAbortConnlessWait = true;
   nativeLlcpConnectionlessSocket_abortWait();
   sIsNfaEnabled = false;
+  sRoutingInitialized = false;
   sDiscoveryEnabled = false;
   sPollingEnabled = false;
   sIsDisabling = false;
   sP2pEnabled = false;
+  sReaderModeEnabled = false;
   gActivated = false;
   sLfT3tMax = 0;
 
@@ -2482,6 +2526,53 @@ static jint nfcManager_getDefaultMifareCLTRoute (JNIEnv* /* e */, jobject /* o *
     DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: Enter", __func__);
     return NFA_IsFieldDetectEnabled();
   }
+
+  /*******************************************************************************
+  **
+  ** Function:        nfcManager_StartRssiMode
+  **
+  ** Description:     Updates RSSI mode ENABLE/DISABLE
+  **                  e: JVM environment.
+  **                  o: Java object.
+  **
+  ** Returns:         Update status
+  **
+  *******************************************************************************/
+  static rssi_status_t nfcManager_StartRssiMode(JNIEnv*, jobject,
+                                                jint rssiNtfTimeIntervalInMillisec) {
+    return nfcManager_doSetRssiMode(true, rssiNtfTimeIntervalInMillisec);
+  }
+
+  /*******************************************************************************
+  **
+  ** Function:        nfcManager_StopRssiMode
+  **
+  ** Description:     Updates RSSI mode ENABLE/DISABLE
+  **                  e: JVM environment.
+  **                  o: Java object.
+  **
+  ** Returns:         Update status
+  **
+  *******************************************************************************/
+  static rssi_status_t nfcManager_StopRssiMode(JNIEnv*, jobject) {
+    return nfcManager_doSetRssiMode(false, 0);
+  }
+
+  /*******************************************************************************
+  **
+  ** Function:        nfcManager_IsRssiEnabled
+  **
+  ** Description:     Returns current status of RSSI mode
+  **                  e: JVM environment.
+  **                  o: Java object.
+  **
+  ** Returns:         true/false
+  **
+  *******************************************************************************/
+  static jboolean nfcManager_IsRssiEnabled(JNIEnv*, jobject) {
+    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: Enter", __func__);
+    return NFA_IsRssiEnabled();
+  }
 #endif
 
 /*******************************************************************************
@@ -2630,28 +2721,6 @@ static void nfcManager_doAbort(JNIEnv* e, jobject, jstring msg) {
   abort();  // <-- Unreachable
 }
 #if(NXP_EXTNS == TRUE)
-/*******************************************************************************
- **
- ** Function:        handleWiredmode
- **
- ** Description: The function will close the wired mode if it is open.
- **              It shall be called in the NFC and Device off cases.
- ** Returns:     void
- **
- *******************************************************************************/
-void handleWiredmode(bool isShutdown)
-{
-    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: enter, isShutdown %d", __func__, isShutdown);
-    SecureElement &se = SecureElement::getInstance();
-    if(se.mIsWiredModeOpen) {
-      se.setNfccPwrConfig(SecureElement::POWER_ALWAYS_ON);
-      se.sendEvent(SecureElement::EVT_END_OF_APDU_TRANSFER);
-      usleep(10 * 1000);
-    }
-    if(!isShutdown) {
-      se. SecEle_Modeset(SecureElement::NFCEE_DISABLE);
-    }
-}
 /*******************************************************************************
 **
 ** Function:        nfcManager_doPartialInitForEseCosUpdate
@@ -2977,6 +3046,13 @@ static void nfcManager_doSetScreenState(JNIEnv* e, jobject o,
     prevScreenState = state;
     return;
   }
+
+  // skip remaining SetScreenState tasks when trying to silent recover NFCC
+  if (recovery_option && sIsRecovering) {
+    prevScreenState = state;
+    return;
+  }
+
   if (
 #if (NXP_EXTNS == TRUE)
       prevScreenState == NFA_SCREEN_STATE_UNKNOWN ||
@@ -2993,6 +3069,12 @@ static void nfcManager_doSetScreenState(JNIEnv* e, jobject o,
     } else {
       sNfaSetPowerSubState.wait();
     }
+  }
+
+  // skip remaining SetScreenState tasks when trying to silent recover NFCC
+  if (recovery_option && sIsRecovering) {
+    prevScreenState = state;
+    return;
   }
 
   if (state == NFA_SCREEN_STATE_OFF_LOCKED ||
@@ -3015,6 +3097,12 @@ static void nfcManager_doSetScreenState(JNIEnv* e, jobject o,
 #endif
   }
 
+  // skip remaining SetScreenState tasks when trying to silent recover NFCC
+  if (recovery_option && sIsRecovering) {
+    prevScreenState = state;
+    return;
+  }
+
   if (state == NFA_SCREEN_STATE_ON_UNLOCKED) {
     // enable both poll and listen on DH 0x01
     discovry_param =
@@ -3032,6 +3120,12 @@ static void nfcManager_doSetScreenState(JNIEnv* e, jobject o,
     return;
   }
 
+  // skip remaining SetScreenState tasks when trying to silent recover NFCC
+  if (recovery_option && sIsRecovering) {
+    prevScreenState = state;
+    return;
+  }
+
   if (prevScreenState == NFA_SCREEN_STATE_ON_UNLOCKED) {
     SyncEventGuard guard(sNfaSetPowerSubState);
     status = NFA_SetPowerSubStateForScreenState(state);
@@ -3042,6 +3136,13 @@ static void nfcManager_doSetScreenState(JNIEnv* e, jobject o,
       sNfaSetPowerSubState.wait();
     }
   }
+
+  // skip remaining SetScreenState tasks when trying to silent recover NFCC
+  if (recovery_option && sIsRecovering) {
+    prevScreenState = state;
+    return;
+  }
+
   if ((state > NFA_SCREEN_STATE_UNKNOWN &&
        state <= NFA_SCREEN_STATE_ON_LOCKED) &&
       (prevScreenState == NFA_SCREEN_STATE_ON_UNLOCKED ||
@@ -3180,22 +3281,54 @@ static jboolean nfcManager_doSetNfcSecure(JNIEnv* e, jobject o,
                                           jboolean enable) {
   RoutingManager& routingManager = RoutingManager::getInstance();
   routingManager.setNfcSecure(enable);
-#if(NXP_EXTNS != TRUE)
-  bool rfEnabled = sRfEnabled;
-#endif
   if (sRoutingInitialized) {
 #if(NXP_EXTNS != TRUE)
       routingManager.disableRoutingToHost();
-      if (rfEnabled) startRfDiscovery(false);
       routingManager.updateRoutingTable();
       routingManager.enableRoutingToHost();
-      routingManager.commitRouting();
-      if (rfEnabled) startRfDiscovery(true);
 #else
       routingManager.updateRoutingTable();
 #endif
   }
   return true;
+}
+
+/*******************************************************************************
+**
+** Function:        nfcManager_doGetMaxRoutingTableSize
+**
+** Description:     Retrieve the max routing table size from cache
+**                  e: JVM environment.
+**                  o: Java object.
+**
+** Returns:         Max Routing Table size
+**
+*******************************************************************************/
+static jint nfcManager_doGetMaxRoutingTableSize(JNIEnv* e, jobject o) {
+  return lmrt_get_max_size();
+}
+
+/*******************************************************************************
+**
+** Function:        nfcManager_doGetRoutingTable
+**
+** Description:     Retrieve the committed listen mode routing configuration
+**                  e: JVM environment.
+**                  o: Java object.
+**
+** Returns:         Committed listen mode routing configuration
+**
+*******************************************************************************/
+static jbyteArray nfcManager_doGetRoutingTable(JNIEnv* e, jobject o) {
+  std::vector<uint8_t>* routingTable = lmrt_get_tlvs();
+
+  CHECK(e);
+  jbyteArray rtJavaArray = e->NewByteArray((*routingTable).size());
+  CHECK(rtJavaArray);
+  e->SetByteArrayRegion(rtJavaArray, 0, (*routingTable).size(),
+                        (jbyte*)&(*routingTable)[0]);
+
+  return rtJavaArray;
 }
 
 /*****************************************************************************
@@ -3334,10 +3467,11 @@ static JNINativeMethod gMethods[] = {
               (void*)nfcManager_SetFieldDetectMode},
     {"isFieldDetectEnabled", "()Z",
               (void*)nfcManager_IsFieldDetectEnabled},
+    {"doStartRssiMode", "(I)I", (void*)nfcManager_StartRssiMode},
+    {"doStopRssiMode", "()I", (void*)nfcManager_StopRssiMode},
+    {"isRssiEnabled", "()Z", (void*)nfcManager_IsRssiEnabled},
     // check firmware version
     {"getFWVersion", "()I", (void*)nfcManager_getFwVersion},
-    {"readerPassThruMode", "(BB)[B", (void*)nfcManager_readerPassThruMode},
-    {"transceiveAppData", "([B)[B", (void*)nfcManager_transceiveAppData},
     {"isNfccBusy", "()Z", (void*)nfcManager_isNfccBusy},
     {"setTransitConfig", "(Ljava/lang/String;)I",
                   (void*)nfcManager_setTransitConfig},
@@ -3352,6 +3486,10 @@ static JNINativeMethod gMethods[] = {
     {"doSetNfcSecure", "(Z)Z", (void*)nfcManager_doSetNfcSecure},
     {"getNfaStorageDir", "()Ljava/lang/String;",
      (void*)nfcManager_doGetNfaStorageDir},
+    {"getRoutingTable", "()[B", (void*)nfcManager_doGetRoutingTable},
+
+    {"getMaxRoutingTableSize", "()I",
+     (void*)nfcManager_doGetMaxRoutingTableSize},
 };
 
 /*******************************************************************************
@@ -3393,10 +3531,6 @@ void startRfDiscovery(bool isStart) {
   if (status == NFA_STATUS_OK) {
     sNfaEnableDisablePollingEvent.wait (); //wait for NFA_RF_DISCOVERY_xxxx_EVT
     sRfEnabled = isStart;
-#if(NXP_EXTNS == TRUE)
-    if (isStart == false && SecureElement::getInstance().mRfFieldIsOn == true)
-      SecureElement::getInstance().mRfFieldIsOn = false;
-#endif
   } else {
     LOG(ERROR) << StringPrintf(
         "%s: Failed to start/stop RF discovery; error=0x%X", __func__, status);
@@ -3742,407 +3876,7 @@ static jint nfcManager_getFwVersion(JNIEnv * e, jobject o) {
 }
 
   /*******************************************************************************
-   **
-   ** Class:       Command
-   **
-   ** Description: This class serves as base class for all propreitary
-   **              commands for special FW mode of operation.
-   **              It also holds reference to the HAL entry point functions.
-   **              This class provides template for methods which can operate on
-   **              command frames.It has default implementation for send() API
-   **              which can be shared by all subclasses.
-   **              This class shall not be instantiated.
-   **              It should be treated as an abstracted class.
-  *******************************************************************************/
-  class Command {
-  public:
-    /*Response wait time*/
-    uint32_t rspTimeout;
-    /*Retrial count limit to handle failure rsp*/
-    int32_t retryCount;
-    /*Name of the command*/
-    char *name;
-    /*Reference to NFC adapter instance*/
-    NfcAdaptation &nfcAdapter;
-    /*Reference to HAL manager*/
-    tHAL_NFC_ENTRY *halMgr;
-
-    /*Constructor*/
-    Command() : nfcAdapter(NfcAdaptation::GetInstance()) {
-      rspTimeout = 0;
-      retryCount = 0;
-      name = NULL;
-      /*Retreive reference to HAL function manager*/
-      halMgr = nfcAdapter.GetHalEntryFuncs();
-    }
-    /*Overidable method list*/
-    virtual tNFA_STATUS preProcessor()
-    { return 0;}
-    virtual tNFA_STATUS send(uint8_t *rsp_len, uint8_t *rsp_buf) {
-      return NFA_STATUS_OK;
-    }
-    virtual tNFA_STATUS send(uint8_t *pData4Tx, uint8_t dataLen, uint8_t *rsp_len,
-                             uint8_t *rsp_buf) {
-      return NxpPropCmd_send(pData4Tx, dataLen, rsp_len, rsp_buf, rspTimeout,
-                             halMgr);
-    }
-    virtual tNFA_STATUS postProcessor(uint8_t rsp_len, uint8_t *rsp_buf) {
-      return NFA_STATUS_OK;
-    }
-    virtual ~Command() {}
-  };
-  /*******************************************************************************
-   **
-   ** Class:        cmdEnablePassThru
-   **
-   ** Description: This child class provides command frame. It also provides the
-   **              API for validity check(preprocessor), sending command and
-   **              post processing the response.
-   **
-  *******************************************************************************/
-  class cmdEnablePassThru : public Command {
-  private:
-    uint8_t cmd_buf[5];
-
-  public:
-    /*Constructor*/
-    cmdEnablePassThru(uint8_t modulationTyp, uint32_t timeoutVal,
-                      uint32_t retryCnt) {
-      /*Set the command specific parameters*/
-      name = (char *)"RDR_PASS_THRU_MODE_ENABLE";
-      retryCount = retryCnt;
-      rspTimeout = timeoutVal;
-
-      /*Create the command frame*/
-      cmd_buf[0] = 0x2F;
-      cmd_buf[1] = 0x1C;
-      cmd_buf[2] = 0x02;
-      cmd_buf[3] = modulationTyp;
-      cmd_buf[4] = 0x00;
-    }
-    tNFA_STATUS send(uint8_t *rsp_len, uint8_t *rsp_buf) {
-      return Command::send(cmd_buf, sizeof(cmd_buf), rsp_len, rsp_buf);
-    }
-    tNFA_STATUS preProcessor() {
-      tNFA_STATUS status = NFA_STATUS_OK;
-      SecureElement &se = SecureElement::getInstance();
-
-      /*Reject request if secure element is listening*/
-      if (se.isActivatedInListenMode()) {
-        LOG(ERROR) << StringPrintf("%s: Denying access due to SE listen mode active", __func__);
-        status = NFA_STATUS_REJECTED;
-      }
-      /*Reject request if wired mode is ongoing*/
-      if (se.mIsWiredModeOpen == true) {
-        LOG(ERROR) << StringPrintf("%s: Denying access due to Wired session is ongoing", __func__);
-        status = NFA_STATUS_REJECTED;
-      }
-      if (android::sRfEnabled) {
-        /* Call the NFA_StopRfDiscovery to synchronize JNI, stack and FW*/
-        android::startRfDiscovery(false);
-        /*Stop RF discovery to reconfigure*/
-        /* [START]poll*/
-        {
-          uint8_t enable_discover[] = {0x21, 0x03, 0x03, 0x01, 0x00, 0x01};
-          uint8_t disable_discover[] = {0x21, 0x06, 0x01, 0x00};
-          status = android::NxpNfc_Write_Cmd_Common(sizeof(enable_discover),
-                                                    enable_discover);
-          if (status == NFA_STATUS_OK)
-            status = android::NxpNfc_Write_Cmd_Common(sizeof(disable_discover),
-                                                      disable_discover);
-        }
-        /*[END]poll*/
-      }
-      return status;
-    }
-  };
-  /*******************************************************************************
-   **
-   ** Class:       cmdDisablePassThru
-   **
-   ** Description: This child class provides command frame. It also provides the
-   **              API for validity check(preprocessor), sending command and
-   **              post processing the response.
-   **
-  *******************************************************************************/
-  class cmdDisablePassThru : public Command {
-  private:
-    uint8_t cmd_buf[3];
-
-  public:
-    /*Constructor*/
-    cmdDisablePassThru(uint32_t timeoutVal, uint32_t retryCnt) {
-      /*Set the command specific parameters*/
-      name = (char *)"RDR_PASS_THRU_MODE_DISABLE";
-      retryCount = retryCnt;
-      rspTimeout = timeoutVal;
-
-      /*Create the command frame*/
-      cmd_buf[0] = 0x2F;
-      cmd_buf[1] = 0x1A;
-      cmd_buf[2] = 0x00;
-    }
-
-    tNFA_STATUS send(uint8_t *rsp_len, uint8_t *rsp_buf) {
-      return Command::send(cmd_buf, sizeof(cmd_buf), rsp_len, rsp_buf);
-    }
-
-    tNFA_STATUS preProcessor() {
-      /*Reject request if NFA layer is not enabled*/
-      if (!android::sIsNfaEnabled
-          ) {
-        LOG(ERROR) << StringPrintf("%s: Denying request due to disabled NFA layer", __func__);
-        return NFA_STATUS_REJECTED;
-      }
-      /*Stop RF discovery in case RF is enabled*/
-      if (android::sRfEnabled && android::sIsNfaEnabled) {
-        // Stop RF discovery to reconfigure
-        android::startRfDiscovery(false);
-      }
-      return NFA_STATUS_OK;
-    }
-
-    tNFA_STATUS postProcessor(uint8_t rsp_len, uint8_t *rsp_buf) {
-
-      /*Start RF discovery in case RF is enabled*/
-      if (!android::sRfEnabled && android::sIsNfaEnabled)
-        android::startRfDiscovery(true);
-      return NFA_STATUS_OK;
-    }
-  };
-  /*******************************************************************************
-   **
-   ** Class:        cmdTransceive
-   **
-   ** Description:  Sends the iCode proprietary transcieve app command.
-   **               This child class provides command frame. It also provides the
-   **               API for validity check(preprocessor), sending command and
-   **               post processing the response.
-   **
-   **
-  *******************************************************************************/
-  class cmdTransceive : public Command {
-  private:
-    uint8_t cmd_buf[258];
-
-  public:
-    /*Constructor*/
-    cmdTransceive(uint32_t timeoutVal, uint32_t retryCnt) {
-      /*Set the command specific parameters*/
-      name = (char *)"RDR_PASS_THRU_MODE_XCV";
-      retryCount = retryCnt;
-      rspTimeout = timeoutVal;
-
-      /*Create the command frame*/
-      cmd_buf[0] = 0x2F;
-      cmd_buf[1] = 0x1B;
-    }
-
-    tNFA_STATUS send(uint8_t *pData4Tx, uint8_t dataLen, uint8_t *rsp_len,
-                     uint8_t *rsp_buf) {
-      cmd_buf[2] = dataLen;
-      memcpy(&cmd_buf[3], pData4Tx, dataLen);
-      return Command::send(cmd_buf, (dataLen + CMD_HDR_SIZE_XCV), rsp_len,
-                           rsp_buf);
-    }
-
-    tNFA_STATUS preProcessor() {
-      tNFA_STATUS status = NFA_STATUS_OK;
-      SecureElement &se = SecureElement::getInstance();
-
-      if (!android::sIsNfaEnabled
-          ) {
-        LOG(ERROR) << StringPrintf("%s: Denying access due to SE listen mode active", __func__);
-        return NFA_STATUS_REJECTED;
-      }
-      /*Reject request if wired mode is ongoing*/
-      if (se.mIsWiredModeOpen == true) {
-        LOG(ERROR) << StringPrintf("%s: Denying access due to Wired session is ongoing", __func__);
-        status = NFA_STATUS_REJECTED;
-      }
-      return status;
-    }
-  };
-  /*******************************************************************************
-   **
-   ** Class:        rdrPassThru
-   **
-   ** Description: This is a factory class which creates command instances
-   **              It creates transceive commands only when it is in busy mode.
-   **
-   ** Returns:         byte[]
-   **
-  *******************************************************************************/
-  class rdrPassThru {
-  private:
-    uint32_t state;
-    typedef enum { IDLE, BUSY } STATE_e;
-
-  public:
-    rdrPassThru() { state = IDLE; }
-
-    Command *createCommand(uint32_t rqst, uint32_t modulationType) {
-
-      switch (rqst) {
-      case RDR_PASS_THRU_MODE_ENABLE:
-        state = BUSY;
-        return new cmdEnablePassThru(modulationType, RDR_PASS_THRU_ENABLE_TIMEOUT, 3);
-      case RDR_PASS_THRU_MODE_DISABLE:
-        state = BUSY;
-        return new cmdDisablePassThru(RDR_PASS_THRU_DISABLE_TIMEOUT, 3);
-      case RDR_PASS_THRU_MODE_XCV:
-        state = BUSY;
-        return new cmdTransceive(RDR_PASS_THRU_DISABLE_TIMEOUT, 0);
-      default:
-        return NULL;
-      }
-      return NULL;
-    }
-
-tNFA_STATUS condOfUseSatisfied(uint32_t rqst, uint32_t modulationTyp) {
-    if (rqst > RDR_PASS_THRU_MODE_XCV ||
-        modulationTyp > RDR_PASS_THRU_MOD_TYPE_LIMIT) {
-        LOG(ERROR) << StringPrintf("%s: Denying access due to Incorrect parameters", __func__);
-        return NFA_STATUS_REJECTED;
-    }
-    if (rqst == RDR_PASS_THRU_MODE_XCV && state == IDLE) {
-        LOG(ERROR) << StringPrintf("%s: Denying access due to Incorrect parameters", __func__);
-        return NFA_STATUS_REJECTED;
-    }
-    return NFA_STATUS_OK;
-}
-void destroy(Command *pCmdInstance) { delete pCmdInstance; }
-void destroy(uint32_t rqst, Command *pCmdInstance) {
-    if (rqst == RDR_PASS_THRU_MODE_DISABLE)
-        state = IDLE;
-     delete pCmdInstance;
-    }
-};
-rdrPassThru rdrPassThruMgr;
-/*******************************************************************************
-**
-** Function:        nfcManager_readerPassThruMode()
-**
-** Description:     Sends  proprietary command to NFC controller to manage
-**                  special FW mode
-**
-** Returns:         byte[]
-**
-*******************************************************************************/
-static jbyteArray nfcManager_readerPassThruMode(
-    JNIEnv * e, jobject o, jbyte rqst, jbyte modulationTyp) {
-    tNFA_STATUS ret_stat = NFA_STATUS_OK;
-    uint8_t rsp_buf[255];
-    uint8_t rsp_len = 0;
-    jbyteArray buf = NULL;
-    static const char fn[] = "nfcManager_readerPassThruMode";
-    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s:enter", fn);
-
-    /*1. Check if the criteria for sending the command is satisfied*/
-    if ((ret_stat = rdrPassThruMgr.condOfUseSatisfied(rqst, modulationTyp)) ==
-        NFA_STATUS_OK) {
-
-      /*1.1.  Retreive the requested command instance from reader pass through
-       * manager (command factory)*/
-      Command *pCommand = rdrPassThruMgr.createCommand(rqst, modulationTyp);
-
-      /*1.2. Check valid command instance and command specific criteria for use */
-      if (pCommand != NULL && pCommand->preProcessor() == NFA_STATUS_OK) {
-        do {
-          /*1.2.1. Send the command to NFC controller*/
-          ret_stat = pCommand->send(&rsp_len, rsp_buf);
-
-          DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s:Invoked", pCommand->name);
-
-          /*1.2.2. Incase of failure retry till the retrial limit is met*/
-        } while (ret_stat != NFA_STATUS_OK && pCommand->retryCount-- > 0);
-
-        /*1.2.3. Invoke command post processor*/
-        if (ret_stat == NFA_STATUS_OK)
-          ret_stat = pCommand->postProcessor(rsp_len, rsp_buf);
-
-        /*1.2.4. Delete the command instance*/
-        rdrPassThruMgr.destroy(rqst, pCommand);
-      }
-    } else {
-      /*2. If the criteria for sending the command is not satisfied; frame error
-       * rsp*/
-      rsp_len = sizeof(tNFA_STATUS);
-      rsp_buf[0] = NFA_STATUS_FAILED;
-    }
-    /*3. Set JNI variables for sending response to application*/
-    buf = e->NewByteArray(rsp_len);
-    e->SetByteArrayRegion(buf, 0, rsp_len, (jbyte *)rsp_buf);
-    return buf;
-}
-
-/*******************************************************************************
-**
-** Function:        nfcManager_transceiveAppData()
-**
-** Description:     Sends the proprietary transcieve app command
-**
-** Returns:         byte[]
-**
-*******************************************************************************/
-static jbyteArray nfcManager_transceiveAppData(JNIEnv * e, jobject o,
-                                                 jbyteArray data) {
-    tNFA_STATUS ret_stat = NFA_STATUS_OK;
-    uint8_t rsp_buf[255];
-    uint8_t rsp_len = 0;
-    uint8_t *dataBuf = NULL;
-    uint16_t dataLen = 0;
-    jbyteArray buf = NULL;
-    static const char fn[] = "nfcManager_transceiveAppData";
-    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s:enter", fn);
-
-    /*1. Check if the criteria for sending the command is satisfied*/
-    if ((ret_stat = rdrPassThruMgr.condOfUseSatisfied(RDR_PASS_THRU_MODE_XCV,
-                                                      0)) == NFA_STATUS_OK) {
-
-      /*1.1.  Retreive the requested command instance from reader pass through
-       * manager (command factory)*/
-      Command *pCommand = rdrPassThruMgr.createCommand(RDR_PASS_THRU_MODE_XCV, 0);
-
-      /*1.2. Check valid command instance and command specific criteria for use */
-      if (pCommand != NULL && pCommand->preProcessor() == NFA_STATUS_OK) {
-
-        /*1.2.1.  Determine application data length */
-        ScopedByteArrayRW bytes(e, data);
-        dataBuf = const_cast<uint8_t *>(reinterpret_cast<uint8_t *>(&bytes[0]));
-        dataLen = bytes.size();
-
-        do {
-          /*1.2.2. Send the command to NFC controller*/
-          ret_stat = pCommand->send(dataBuf, dataLen, &rsp_len, rsp_buf);
-
-          DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s:Invoked", pCommand->name);
-
-          /*1.2.3. Incase of failure retry till the retrial limit is met*/
-        } while (ret_stat != NFA_STATUS_OK && pCommand->retryCount-- > 0);
-
-        /*1.2.4. Invoke command post processor*/
-        if (ret_stat == NFA_STATUS_OK)
-          ret_stat = pCommand->postProcessor(rsp_len, rsp_buf);
-
-        /*1.2.5. Delete the command instance*/
-        rdrPassThruMgr.destroy(pCommand);
-      }
-    } else {
-      /*2. If the criteria for sending the command is not satisfied; frame error
-       * rsp*/
-      rsp_len = sizeof(tNFA_STATUS);
-      rsp_buf[0] = NFA_STATUS_FAILED;
-    }
-    /*3. Set JNI variables for sending response to application*/
-
-    buf = e->NewByteArray(rsp_len);
-    e->SetByteArrayRegion(buf, 0, rsp_len, (jbyte *)rsp_buf);
-
-    return buf;
-}
-
-/*******************************************************************************
+*******************************************************************************
 **
 ** Function:        nfcManager_isNfccBusy
 **
@@ -4322,6 +4056,74 @@ static int nfcManager_staticDualUicc_Precondition(int uiccSlot) {
   return retStat;
 }
 
+static rssi_status_t nfcManager_doSetRssiMode(
+    bool enable, int rssiNtfTimeIntervalInMillisec) {
+  DLOG_IF(INFO, nfc_debug_enabled)
+      << StringPrintf("%s: Enter rssiNtfTimeIntervalInMillisec = %d ", __func__,
+                      rssiNtfTimeIntervalInMillisec);
+
+  if (!sIsNfaEnabled) {
+    DLOG_IF(ERROR, nfc_debug_enabled)
+        << StringPrintf("%s: Nfc is not Enabled. Returning", __func__);
+    return FDSTATUS_ERROR_NFC_IS_OFF;
+  }
+
+  if (MposManager::getInstance().isMposOngoing()) {
+    DLOG_IF(ERROR, nfc_debug_enabled)
+        << StringPrintf("%s: MPOS is ongoing.. Returning", __func__);
+    return FDSTATUS_ERROR_NFC_BUSY_IN_MPOS;
+  }
+
+  if (NFA_IsRssiEnabled() == enable) {
+    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
+        "%s: Already %s", __func__, ((enable) ? "ENABLED" : "DISABLED"));
+    return FDSTATUS_SUCCESS;
+  }
+
+  uint8_t rssiNtfTimeInterval =
+      (rssiNtfTimeIntervalInMillisec / 10) +
+      ((rssiNtfTimeIntervalInMillisec % 10 != 0x00) ? 0x01 : 0x00);
+  if (enable && (rssiNtfTimeInterval < 0x01 || rssiNtfTimeInterval > 0xFF)) {
+    DLOG_IF(ERROR, nfc_debug_enabled) << StringPrintf(
+        "%s: Rssi Notification timeout interval should be in between 10 to "
+        "2550 Millisec",
+        __func__);
+    return FDSTATUS_ERROR_UNKNOWN;
+  }
+
+  if (sRfEnabled) {
+    // Stop RF Discovery
+    DLOG_IF(INFO, nfc_debug_enabled)
+        << StringPrintf("%s: stop discovery", __func__);
+    startRfDiscovery(false);
+  }
+  NFA_SetFieldDetectMode(enable);
+
+  tNFA_STATUS status = NFA_STATUS_REJECTED;
+  uint8_t cmd_rssi[] = {0x20, 0x02, 0x06, 0x01, 0xA1, 0x55, 0x02, 0x00, 0x00};
+
+  cmd_rssi[7] = (uint8_t)enable;  // To enable/disable RSSI
+  cmd_rssi[8] =
+      (uint8_t)rssiNtfTimeInterval;  // RSSI NTF time Interval in value * 10 ms
+  status = android::NxpNfc_Write_Cmd_Common(sizeof(cmd_rssi), cmd_rssi);
+
+  if (status != FDSTATUS_SUCCESS) {
+    NFA_SetFieldDetectMode(false);
+    // start discovery
+    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
+        "%s: reconfigured start discovery Line:%d", __func__, __LINE__);
+    startRfDiscovery(true);
+    return FDSTATUS_ERROR_UNKNOWN;
+  }
+
+  NFA_SetRssiMode(enable);
+  // start discovery
+  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
+      "%s: reconfigured start discovery Line:%d", __func__, __LINE__);
+  startRfDiscovery(true);
+  return FDSTATUS_SUCCESS;
+}
+
 /**********************************************************************************
 **
 ** Function:       nfcManager_enableDebugNtf
@@ -4357,6 +4159,34 @@ static jint nfcManager_enableDebugNtf(JNIEnv* e, jobject o, jbyte fieldValue) {
   startRfDiscovery(true);
   return status;
 }
+
+/**********************************************************************************
+**
+** Function:       waitIfRfStateActive
+**
+** Description:    This api is used to wait/delay if RF session is active.
+**
+** Returns:        None
+**
+**********************************************************************************/
+static void waitIfRfStateActive() {
+  uint16_t delayLoopCount = 0;
+  uint16_t delayInMs = 50;
+  const uint16_t maxDelayInMs = 1000;
+  uint16_t maxDelayLoopCount = maxDelayInMs/delayInMs;
+
+  SecureElement& se = SecureElement::getInstance();
+
+  while (se.isRfFieldOn() || se.mActivatedInListenMode) {
+    /* Delay is required to avoid update routing during RF Field session*/
+    usleep(delayInMs * 1000);
+    delayLoopCount++;
+    if (delayLoopCount > maxDelayLoopCount) {
+      break;
+    }
+  }
+}
+
 /*******************************************************************************
 **
 ** Function:        nfcManager_setPreferredSimSlot()

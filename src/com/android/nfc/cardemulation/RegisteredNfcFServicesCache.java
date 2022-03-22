@@ -29,15 +29,11 @@
 *  See the License for the specific language governing permissions and
 *  limitations under the License.
 *
-*  Copyright 2019-2020 NXP
+*  Copyright 2019-2021 NXP
 *
 ******************************************************************************/
 
 package com.android.nfc.cardemulation;
-
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlSerializer;
 
 import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
@@ -46,22 +42,29 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
-import android.content.pm.PackageManager.NameNotFoundException;
-import android.nfc.cardemulation.NfcFServiceInfo;
-import android.nfc.cardemulation.NfcFCardEmulation;
 import android.nfc.cardemulation.HostNfcFService;
+import android.nfc.cardemulation.NfcFCardEmulation;
+import android.nfc.cardemulation.NfcFServiceInfo;
+import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.util.AtomicFile;
 import android.util.Log;
 import android.util.SparseArray;
 import android.util.Xml;
 import android.util.proto.ProtoOutputStream;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.FastXmlSerializer;
+
 import com.google.android.collect.Maps;
 
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+import org.xmlpull.v1.XmlSerializer;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -72,22 +75,24 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import android.os.SystemProperties;
 
 public class RegisteredNfcFServicesCache {
     static final String XML_INDENT_OUTPUT_FEATURE = "http://xmlpull.org/v1/doc/features.html#indent-output";
     static final String TAG = "RegisteredNfcFServicesCache";
-    static final boolean DBG = ((SystemProperties.get("persist.nfc.ce_debug").equals("1")) ? true : false);
+    static final boolean DBG = SystemProperties.getBoolean("persist.nfc.debug_enabled", false);
 
     final Context mContext;
     final AtomicReference<BroadcastReceiver> mReceiver;
 
     final Object mLock = new Object();
     // All variables below synchronized on mLock
+
+    // mUserHandles holds the UserHandles of all the profiles that belong to current user
+    @GuardedBy("mLock")
+    List<UserHandle> mUserHandles;
 
     // mUserServices holds the card emulation services that are running for each user
     final SparseArray<UserServices> mUserServices = new SparseArray<UserServices>();
@@ -141,9 +146,19 @@ public class RegisteredNfcFServicesCache {
         return userServices;
     }
 
+    private int getProfileParentId(int userId) {
+        UserManager um = mContext.createContextAsUser(
+                UserHandle.of(userId), /*flags=*/0)
+                .getSystemService(UserManager.class);
+        UserHandle uh = um.getProfileParent(UserHandle.of(userId));
+        return uh == null ? userId : uh.getIdentifier();
+    }
+
     public RegisteredNfcFServicesCache(Context context, Callback callback) {
         mContext = context;
         mCallback = callback;
+
+        refreshUserProfilesLocked();
 
         final BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
@@ -157,7 +172,7 @@ public class RegisteredNfcFServicesCache {
                              Intent.ACTION_PACKAGE_REMOVED.equals(action));
                     if (!replaced) {
                         int currentUser = ActivityManager.getCurrentUser();
-                        if (currentUser == UserHandle.getUserId(uid)) {
+                        if (currentUser == getProfileParentId(UserHandle.getUserId(uid))) {
                             invalidateCache(UserHandle.getUserId(uid));
                         } else {
                             // Cache will automatically be updated on user switch
@@ -195,8 +210,10 @@ public class RegisteredNfcFServicesCache {
     void initialize() {
         synchronized (mLock) {
             readDynamicSystemCodeNfcid2Locked();
+            for (UserHandle uh : mUserHandles) {
+                invalidateCache(uh.getIdentifier());
+            }
         }
-        invalidateCache(ActivityManager.getCurrentUser());
     }
 
     void dump(ArrayList<NfcFServiceInfo> services) {
@@ -715,7 +732,29 @@ public class RegisteredNfcFServicesCache {
     public void onUserSwitched() {
         synchronized (mLock) {
             mUserSwitched = true;
+            refreshUserProfilesLocked();
         }
+    }
+
+    public void onManagedProfileChanged() {
+        synchronized (mLock) {
+            refreshUserProfilesLocked();
+        }
+    }
+
+    private void refreshUserProfilesLocked() {
+        UserManager um = mContext.createContextAsUser(
+                UserHandle.of(ActivityManager.getCurrentUser()), /*flags=*/0)
+                .getSystemService(UserManager.class);
+        mUserHandles = um.getEnabledProfiles();
+        List<UserHandle> removeUserHandles = new ArrayList<UserHandle>();
+
+        for (UserHandle uh : mUserHandles) {
+            if (um.isQuietModeEnabled(uh)) {
+                removeUserHandles.add(uh);
+            }
+        }
+        mUserHandles.removeAll(removeUserHandles);
     }
 
     private String generateRandomNfcid2() {
@@ -732,12 +771,17 @@ public class RegisteredNfcFServicesCache {
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("Registered HCE-F services for current user: ");
         synchronized (mLock) {
-            UserServices userServices = findOrCreateUserLocked(ActivityManager.getCurrentUser());
-            for (NfcFServiceInfo service : userServices.services.values()) {
-                service.dump(fd, pw, args);
+            for (UserHandle uh : mUserHandles) {
+                UserManager um = mContext.createContextAsUser(
+                        uh, /*flags=*/0).getSystemService(UserManager.class);
+                pw.println("User " + um.getUserName() + " : ");
+                UserServices userServices = findOrCreateUserLocked(uh.getIdentifier());
+                for (NfcFServiceInfo service : userServices.services.values()) {
+                    service.dump(fd, pw, args);
+                    pw.println("");
+                }
                 pw.println("");
             }
-            pw.println("");
         }
     }
 

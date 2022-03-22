@@ -29,7 +29,7 @@
 *  See the License for the specific language governing permissions and
 *  limitations under the License.
 *
-*  Copyright 2018 NXP
+*  Copyright 2018,2021 NXP
 *
 ******************************************************************************/
 #pragma once
@@ -99,6 +99,11 @@
 #define TARGET_TYPE_MIFARE_CLASSIC 8
 #define TARGET_TYPE_MIFARE_UL 9
 #define TARGET_TYPE_KOVIO_BARCODE 10
+#if (NXP_EXTNS == TRUE)
+#if (NXP_QTAG == TRUE)
+#define TARGET_TYPE_ISO14443_3Q 11
+#endif
+#endif
 
 // define a few NXP error codes that NFC service expects;
 // see external/libnfc-nxp/src/phLibNfcStatus.h;
@@ -176,5 +181,6 @@ int register_com_android_nfc_NativeLlcpSocket(JNIEnv* e);
 int register_com_android_nfc_NativeNfcSecureElement (JNIEnv *e);
 int register_com_android_nfc_NativeNfcMposManager (JNIEnv *e);
 int register_com_android_nfc_NativeT4tNfcee(JNIEnv *e);
+int register_com_android_nfc_NativeExtFieldDetect(JNIEnv* e);
 #endif
 }  // namespace android

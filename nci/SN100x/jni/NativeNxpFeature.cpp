@@ -1,23 +1,6 @@
-/*
- * Copyright (C) 2012 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 /******************************************************************************
  *
- *  The original Work has been changed by NXP Semiconductors.
- *
- *  Copyright (C) 2015-2020 NXP Semiconductors
+ *  Copyright 2015-2022 NXP
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -97,6 +80,9 @@ void NxpPropCmd_OnResponseCallback(uint8_t event, uint16_t param_len,
     break;
   case (0x1B):
     status = p_param[param_len - 1];
+    break;
+  case (0x32):
+    status = p_param[3];
     break;
   default:
     LOG(ERROR) << StringPrintf("Propreitary Rsp: OID is not supported");
@@ -224,7 +210,16 @@ tNFA_STATUS send_flush_ram_to_flash() {
   DLOG_IF(INFO, nfc_debug_enabled)
     << StringPrintf("%s: enter", __func__);
   tNFA_STATUS status = NFA_STATUS_OK;
-  uint8_t  cmd[] = {0x2F, 0x21, 0x00};
+  const uint8_t FW_ROM_VERSION_PN557 = 0x12;
+  tNFC_FW_VERSION fw_version = nfc_ncif_getFWVersion();
+  // Flash Sync command not applicable for PN557 , disable command only for
+  // PN557
+  if (fw_version.rom_code_version == FW_ROM_VERSION_PN557) {
+    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
+        "%s: Skipping Flash sync cmd for PN557 chipset", __func__);
+    return status;
+  }
+  uint8_t cmd[] = {0x2F, 0x21, 0x00};
 
   status = NxpNfc_Write_Cmd_Common(sizeof(cmd), cmd);
   if(status != NFA_STATUS_OK) {

@@ -29,7 +29,7 @@
 *  See the License for the specific language governing permissions and
 *  limitations under the License.
 *
-*  Copyright 2018-2020 NXP
+*  Copyright 2018-2021 NXP
 *
 ******************************************************************************/
 #pragma once
@@ -48,6 +48,8 @@ extern jmethodID gCachedNfcManagerNotifyLlcpFirstPacketReceived;
 extern jmethodID gCachedNfcManagerNotifyHostEmuActivated;
 extern jmethodID gCachedNfcManagerNotifyHostEmuData;
 extern jmethodID gCachedNfcManagerNotifyHostEmuDeactivated;
+extern jmethodID gCachedNfcManagerNotifyEeUpdated;
+
 extern const char* gNativeP2pDeviceClassName;
 extern const char* gNativeLlcpServiceSocketClassName;
 extern const char* gNativeLlcpConnectionlessSocketClassName;
@@ -60,11 +62,12 @@ extern jmethodID gCachedNfcManagerNotifySeListenDeactivated;
 extern jmethodID gCachedNfcManagerNotifySeListenActivated;
 extern jmethodID gCachedNfcManagerNotifyRfFieldDeactivated;
 extern jmethodID gCachedNfcManagerNotifyRfFieldActivated;
-extern jmethodID gCachedNfcManagerNotifySeInitialized;
 extern const char* gNativeNfcMposManagerClassName;
 extern const char* gNativeT4tNfceeClassName;
+extern const char* gNativeExtFieldDetectClassName;
 extern jmethodID gCachedNfcManagerNotifyLxDebugInfo;
 extern jmethodID  gCachedNfcManagerNotifySrdEvt;
+extern jmethodID gCachedNfcManagerNotifyEfdmEvt;
 extern jmethodID gCachedNfcManagerNotifyTagAbortListeners;
 #endif
 }  // namespace android

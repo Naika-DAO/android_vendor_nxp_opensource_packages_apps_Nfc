@@ -1,24 +1,21 @@
-/*
- * Copyright (c) 2016, The Linux Foundation. All rights reserved.
- * Not a Contribution.
- *
- * Copyright (C) 2018-2020 NXP Semiconductors
- * The original Work has been changed by NXP Semiconductors.
- *
- * Copyright (C) 2012 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/******************************************************************************
+*
+*  Licensed under the Apache License, Version 2.0 (the "License");
+*  you may not use this file except in compliance with the License.
+*  You may obtain a copy of the License at
+*
+*  http://www.apache.org/licenses/LICENSE-2.0
+*
+*  Unless required by applicable law or agreed to in writing, software
+*  distributed under the License is distributed on an "AS IS" BASIS,
+*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*  See the License for the specific language governing permissions and
+*  limitations under the License.
+*
+*  Copyright 2018-2022 NXP
+*
+******************************************************************************/
+
 #include <android-base/stringprintf.h>
 #include <base/logging.h>
 #include "PowerSwitch.h"
@@ -47,6 +44,7 @@ namespace android
 static const int EE_ERROR_INIT = -3;
 static void NxpNfc_ParsePlatformID(const uint8_t*);
 extern bool nfcManager_isNfcActive();
+extern bool nfcManager_isNfcDisabling();
 /*******************************************************************************
 **
 ** Function:        nativeNfcSecureElement_doOpenSecureElementConnection
@@ -61,6 +59,12 @@ extern bool nfcManager_isNfcActive();
 static jint nativeNfcSecureElement_doOpenSecureElementConnection (JNIEnv*, jobject)
 {
     LOG(INFO) << StringPrintf("%s: Enter; ", __func__);
+    if (nfcManager_isNfcDisabling()) {
+      LOG(INFO) << StringPrintf(
+          "%s: Nfc is Disabling. Can not open SE connection. Line: %d",
+          __func__, __LINE__);
+      return EE_ERROR_INIT;
+    }
     bool stat = false;
     const int32_t recvBufferMaxSize = 1024;
     uint8_t recvBuffer [recvBufferMaxSize];
@@ -96,7 +100,12 @@ static jint nativeNfcSecureElement_doOpenSecureElementConnection (JNIEnv*, jobje
        {
          stat = false;
          LOG(INFO) << StringPrintf("%s: Mode set ntf STATUS_FAILED", __func__);
-
+         if (nfcManager_isNfcDisabling()) {
+           LOG(INFO) << StringPrintf(
+               "%s: Nfc is Disabling. Can not open SE connection. Line : %d ",
+               __func__, __LINE__);
+           return EE_ERROR_INIT;
+         }
          SyncEventGuard guard (se.mEERecoveryComplete);
          {
            se.mEERecoveryComplete.wait();
@@ -155,6 +164,8 @@ static jboolean nativeNfcSecureElement_doDisconnectSecureElementConnection (JNIE
 
     if(!se.mIsWiredModeOpen)
          return false;
+
+    se.mIsWiredModeOpen = false;
      /* release any pending transceive wait */
     se.releasePendingTransceive();
 
@@ -169,8 +180,6 @@ static jboolean nativeNfcSecureElement_doDisconnectSecureElementConnection (JNIE
         if(status == NFA_STATUS_OK)
             stat = true;
     }
-    se.mIsWiredModeOpen = false;
-
     /* if nothing is active after this, then tell the controller to power down */
     if (! PowerSwitch::getInstance ().setModeOff (PowerSwitch::SE_CONNECTED))
         PowerSwitch::getInstance ().setLevel (PowerSwitch::LOW_POWER);
@@ -244,7 +253,8 @@ static jbyteArray nativeNfcSecureElement_doGetAtr (JNIEnv* e, jobject, jint hand
         e->SetByteArrayRegion(result, 0, recvBufferActualSize, (jbyte *) recvBuffer);
     }
 
-    LOG(INFO) << StringPrintf("%s: exit: recv len=%d", __func__, recvBufferActualSize);
+    LOG(INFO) << StringPrintf("%s: exit: Status = 0x%X: recv len=%d", __func__,
+                              stat, recvBufferActualSize);
 
     return result;
 }
