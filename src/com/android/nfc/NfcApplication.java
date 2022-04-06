@@ -26,6 +26,7 @@ import android.content.pm.PackageManager;
 
 import java.util.Iterator;
 import java.util.List;
+import java.io.File;
 
 public class NfcApplication extends Application {
 
@@ -62,9 +63,13 @@ public class NfcApplication extends Application {
                 break;
             }
         }
-        if (UserHandle.myUserId() == 0 && isMainProcess) {
-            mNfcService = new NfcService(this);
-            ThreadedRenderer.enableForegroundTrimming();
+        // Enabling the NFC client service when device node is presence
+        File file = new File("/dev/nq-nci");
+        if (file.exists()) {
+            if (UserHandle.myUserId() == 0 && isMainProcess) {
+                mNfcService = new NfcService(this);
+                ThreadedRenderer.enableForegroundTrimming();
+           }
         }
     }
 }
